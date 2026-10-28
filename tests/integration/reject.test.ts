@@ -61,35 +61,85 @@ describe('POST /api/assignments/{id}/reject', () => {
     expect(board.metrics).toMatchObject({ visitors: 1, assignedTurns: 2, acceptedTurns: 0 })
   })
 
-  it('may re-offer the same visit to the same associate when nobody else is eligible', async () => {
+  it('never re-offers a visit to its last rejecter; the rejecter still gets other visitors', async () => {
     const roster = (await api.board()).associates
+    const [alex, jamie] = roster.map((a) => a.participantId)
     await offFloor(roster[1]!.participantId)
     await offFloor(roster[2]!.participantId)
-    const visit = await arriveVisitor()
-    const response = await reject(visit.assignmentId!)
-    expect(response.body).toMatchObject({ status: 'Assigned', replayed: false })
-    const board = await api.board()
-    expect(board.assignments).toHaveLength(2)
-    expect(board.assignments.map((a) => [a.participantId, a.completionReason])).toEqual([
-      [roster[0]!.participantId, 'Rejected'],
-      [roster[0]!.participantId, null],
-    ])
-    expect(board.associates[0]!.pendingAssignmentId).toBe(board.assignments[1]!.assignmentId)
+    const v1 = await arriveVisitor()
+    const response = await reject(v1.assignmentId!)
+    expect(response.body).toMatchObject({ status: 'Waiting', replayed: false })
+    let board = await api.board()
+    expect(board.visits[0]).toMatchObject({ status: 'Waiting', waitingReason: 'AwaitingOtherAssociate', assignmentId: null, waitingPosition: 1 })
+    expect(board.assignments).toHaveLength(1)
+    expect(board.associates[0]).toMatchObject({ state: 'Available', pendingAssignmentId: null })
+
+    // A new visitor goes to Alex; V1 keeps waiting for someone else.
+    const v2 = await arriveVisitor()
+    expect(board.assignments.length + 1).toBe((await api.board()).assignments.length)
+    board = await api.board()
+    expect(board.assignments.find((a) => a.visitId === v2.visitId)!.participantId).toBe(alex)
+    expect(board.visits[0]).toMatchObject({ status: 'Waiting', waitingReason: 'AwaitingConfirmation' })
+
+    // Jamie returns: V1 is offered to Jamie, not Alex.
+    await api.request('POST', '/api/availability', { sessionId, participantId: jamie, commandId: randomUUID(), state: 'Available' })
+    board = await api.board()
+    const live = board.assignments.find((a) => a.visitId === v1.visitId && a.completionReason === null)!
+    expect(live.participantId).toBe(jamie)
+    expect(board.visits[0]).toMatchObject({ status: 'Assigned', waitingReason: null })
   })
 
-  it('keeps the original registration order: the rejected visit is served before later Waiting visits', async () => {
+  it('keeps the rejected visit in FIFO order; the rejecter may take a later visitor', async () => {
     const v: Awaited<ReturnType<typeof arriveVisitor>>[] = []
     for (let i = 0; i < 4; i++) v.push(await arriveVisitor()) // V1-V3 offered to A, B, C; V4 waits
-    const jamie = (await api.board()).associates[1]!.participantId
-    await reject(v[1]!.assignmentId!)
-    const board = await api.board()
-    const v2 = board.visits.find((x) => x.visitId === v[1]!.visitId)!
-    const v4 = board.visits.find((x) => x.visitId === v[3]!.visitId)!
-    // Only Jamie is eligible again; V2 (older) goes back to Jamie before V4.
-    expect(v2.status).toBe('Assigned')
-    expect(board.assignments.find((a) => a.assignmentId === v2.assignmentId)!.participantId).toBe(jamie)
-    expect(v4).toMatchObject({ status: 'Waiting', waitingPosition: 1, assignmentId: null })
+    const [alex, jamie] = (await api.board()).associates.map((a) => a.participantId)
+    const response = await reject(v[1]!.assignmentId!) // Jamie rejects V2
+    expect(response.body).toMatchObject({ visitId: v[1]!.visitId, status: 'Waiting' })
+    let board = await api.board()
+    // Jamie is skipped for V2 only and takes V4; V2 waits with its original position.
+    expect(board.assignments.find((a) => a.visitId === v[3]!.visitId)!.participantId).toBe(jamie)
+    expect(board.visits.find((x) => x.visitId === v[1]!.visitId)).toMatchObject({
+      status: 'Waiting', waitingPosition: 1, waitingReason: 'AwaitingConfirmation', assignmentId: null,
+    })
     expect(board.visits.map((x) => x.visitId)).toEqual(v.map((x) => x.visitId))
+
+    // Alex accepts V1 and becomes eligible: V2 (oldest Waiting) goes to Alex.
+    await accept(v[0]!.assignmentId!)
+    board = await api.board()
+    const v2 = board.visits.find((x) => x.visitId === v[1]!.visitId)!
+    expect(v2.status).toBe('Assigned')
+    expect(board.assignments.find((a) => a.assignmentId === v2.assignmentId)!.participantId).toBe(alex)
+  })
+
+  it('moves the exclusion to the newest rejecter so a visit circulates between associates', async () => {
+    const roster = (await api.board()).associates
+    const [alex, jamie] = roster.map((a) => a.participantId)
+    await offFloor(roster[2]!.participantId)
+    const visit = await arriveVisitor() // to Alex
+    await reject(visit.assignmentId!) // -> Jamie (Alex excluded)
+    let board = await api.board()
+    const second = board.visits[0]!.assignmentId!
+    expect(board.assignments.find((a) => a.assignmentId === second)!.participantId).toBe(jamie)
+    const response = await reject(second) // Jamie rejects: now Jamie is excluded, Alex is not
+    expect(response.body.status).toBe('Assigned')
+    board = await api.board()
+    const third = board.assignments.find((a) => a.assignmentId === board.visits[0]!.assignmentId)!
+    expect(third.participantId).toBe(alex)
+    expect(board.assignments.map((a) => a.completionReason)).toEqual(['Rejected', 'Rejected', null])
+  })
+
+  it('reports why Waiting visitors have no offer', async () => {
+    for (let i = 0; i < 4; i++) await arriveVisitor()
+    let board = await api.board()
+    expect(board.visits.map((v) => v.waitingReason)).toEqual([null, null, null, 'AwaitingConfirmation'])
+    sessionId = await freshRun(db)
+    for (const p of (await api.board()).associates) await offFloor(p.participantId)
+    await arriveVisitor()
+    board = await api.board()
+    expect(board.visits[0]).toMatchObject({ status: 'Waiting', waitingReason: 'NoAvailableAssociates' })
+    // Departed visitors have no waiting reason.
+    await api.request('POST', `/api/visits/${board.visits[0]!.visitId}/departure`, { sessionId, outcome: 'NoSale' })
+    expect((await api.board()).visits[0]!.waitingReason).toBeNull()
   })
 
   it('is idempotent by state and never undoes an acceptance', async () => {

@@ -2,6 +2,25 @@
 
 `CONTRACT_VERSION` in [`src/contracts/dto.ts`](../src/contracts/dto.ts).
 
+## Version 5 - no re-offer to the last rejecter (additive)
+
+User-confirmed correction of Reject UP; agreed with the frontend session.
+
+- A visit is never offered to the associate who rejected it **last** (the
+  participant of its most recent `Rejected` assignment). Per visit, derived
+  from history, lasting until someone else rejects it; the rejecter remains
+  eligible for every other visitor.
+- Dispatch serves the oldest Waiting visit that has a non-excluded eligible
+  associate; a rejected visit keeps its FIFO position.
+- `RejectionResult.status` is `Waiting` when only the rejecter would be
+  eligible - never `Assigned` back to them.
+- New field `VisitView.waitingReason: 'NoAvailableAssociates' |
+  'AwaitingConfirmation' | 'AwaitingOtherAssociate' | null` (server-computed,
+  non-null only while Waiting and inside). Replaces client-side derivation.
+
+Migration `supabase/migrations/20261028000300_skip_last_rejecter.sql`
+replaces the dispatcher and the board function. No schema change.
+
 ## Version 4 - Reject UP (additive)
 
 Source: `Assignment Rotation Revision.md` rules 9-10 and "Reject UP" section;

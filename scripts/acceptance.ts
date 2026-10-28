@@ -194,6 +194,20 @@ async function main(): Promise<void> {
   check((await call('POST', `/api/assignments/${morganOffer}/reject`, { sessionId: sid })).body.replayed === true, 'repeated reject is a replay')
   check((await call('POST', `/api/assignments/${morganOffer}/accept`, { sessionId: sid })).body.code === 'INVALID_TRANSITION', 'a rejected offer cannot be accepted')
   check((await call('POST', `/api/assignments/${offerOf(b, visits[1]!).assignmentId}/reject`, { sessionId: sid })).body.code === 'INVALID_TRANSITION', 'an accepted offer cannot be rejected')
+  // Jamie rejects V3 too: only Jamie (the last rejecter) is excluded now, so V3
+  // goes to the front eligible associate among Alex and Morgan.
+  const jamieOffer = v3.assignmentId!
+  const second = await call('POST', `/api/assignments/${jamieOffer}/reject`, { sessionId: sid })
+  b = await board()
+  const v3again = b.visits.find((v) => v.visitId === visits[2])!
+  const thirdOwner = b.assignments.find((a) => a.assignmentId === v3again.assignmentId)!.participantId
+  check(second.body.status === 'Assigned' && thirdOwner !== ids[1], 'after Jamie rejects V3 it goes to someone else, never back to Jamie')
+  await call('POST', `/api/assignments/${v3again.assignmentId}/reject`, { sessionId: sid })
+  b = await board()
+  const v3wait = b.visits.find((v) => v.visitId === visits[2])!
+  const fourthOwner = v3wait.assignmentId ? b.assignments.find((a) => a.assignmentId === v3wait.assignmentId)!.participantId : null
+  check(fourthOwner !== thirdOwner, 'a visit is never re-offered to its last rejecter')
+  check(v3wait.status !== 'Waiting' || v3wait.waitingReason !== null, 'a Waiting visitor reports waitingReason')
 
   const last = await call('POST', '/api/demo/reset', { sessionId: sid })
   check(last.status === 200, 'final reset leaves a clean board')

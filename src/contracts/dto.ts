@@ -17,8 +17,10 @@
  * 4 = Reject UP: POST /api/assignments/{id}/reject, completionReason
  *     'Rejected', activity 'AssignmentRejected'; a visit may have several
  *     rejected offers in assignments[] (at most one non-rejected).
+ * 5 = a visit is never offered to the associate who rejected it last;
+ *     VisitView.waitingReason explains why a Waiting visitor has no offer.
  */
-export const CONTRACT_VERSION = 4
+export const CONTRACT_VERSION = 5
 
 /* ------------------------------------------------------------ enum values */
 
@@ -59,6 +61,16 @@ export type AttributesSource = (typeof ATTRIBUTES_SOURCES)[number]
 
 export const ENRICHMENT_STATUSES = ['Pending', 'Complete', 'Failed', 'NotRequested'] as const
 export type EnrichmentStatus = (typeof ENRICHMENT_STATUSES)[number]
+
+/**
+ * Why a Waiting visitor inside has no offer:
+ * - NoAvailableAssociates: nobody is Available.
+ * - AwaitingConfirmation: every Available associate holds their own pending offer.
+ * - AwaitingOtherAssociate: the only eligible associate(s) rejected this visit
+ *   last; it waits for someone else (they still receive other visitors).
+ */
+export const WAITING_REASONS = ['NoAvailableAssociates', 'AwaitingConfirmation', 'AwaitingOtherAssociate'] as const
+export type WaitingReason = (typeof WAITING_REASONS)[number]
 
 export const ACTIVITY_KINDS = [
   'ArrivalRecorded',
@@ -136,6 +148,8 @@ export interface VisitView {
   outcomeRecordedAt: string | null
   /** 1-based FIFO rank among Waiting visitors still inside; otherwise null. */
   waitingPosition: number | null
+  /** Non-null only while Waiting and inside; see WaitingReason. */
+  waitingReason: WaitingReason | null
   /**
    * The visit's current (non-rejected) assignment: pending, accepted or
    * completed. Always null while Waiting, even if earlier offers were
@@ -276,7 +290,10 @@ export interface RejectionResult {
   sessionId: string
   assignmentId: string
   visitId: string
-  /** Visit status after the immediate re-dispatch: Waiting or Assigned (possibly to the same associate). */
+  /**
+   * Visit status after the immediate re-dispatch: Assigned to another eligible
+   * associate, or Waiting. Never re-offered to the associate who just rejected it.
+   */
   status: VisitStatus
   replayed: boolean
 }

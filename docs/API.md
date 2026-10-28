@@ -1,6 +1,6 @@
 # Digital UP Board API - Stage 1
 
-Contract version **4** (per-associate offers + Reject UP) - see
+Contract version **5** (per-associate offers, Reject UP, no re-offer to the last rejecter) - see
 [CONTRACT_CHANGES.md](CONTRACT_CHANGES.md) for the changes from earlier versions.
 
 Canonical types: [`src/contracts/dto.ts`](../src/contracts/dto.ts) and
@@ -26,8 +26,11 @@ section 6, `Assignment Rotation Revision.md` and `Prototype Design.md`.
   closes it and frees only that associate for a new offer.
 - **Reject** closes a pending offer (`Rejected`) without moving the queue and
   returns the visit to Waiting at its original registration order; dispatch
-  runs immediately, so the visit is offered again right away - possibly to
-  the same associate if nobody else is eligible.
+  runs immediately.
+- A visit is **never offered to the associate who rejected it last**. The
+  exclusion is per visit and lasts until someone else rejects it; the
+  rejecter still receives other visitors. Dispatch serves the oldest Waiting
+  visit that has a non-excluded eligible associate.
 - A visitor waits only when no associate is eligible: nobody Available ("No
   available associates") or every Available associate already holds an offer
   ("Awaiting confirmation").
@@ -115,9 +118,11 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
 - `associates`: stable initial roster order; Next UP = `queuePosition === 1`.
 - `visits` / `assignments`: server registration order of the visit (FIFO).
 - `waitingPosition`: 1-based rank among Waiting visitors still inside.
-- Waiting reason (derived): no associate with `state === 'Available'` ->
-  "No available associates"; otherwise every Available associate has a
-  non-null `pendingAssignmentId` -> "Awaiting confirmation".
+- `waitingReason` (server-computed, non-null only while Waiting and inside):
+  `NoAvailableAssociates` (nobody Available), `AwaitingConfirmation` (every
+  Available associate holds their own pending offer) or
+  `AwaitingOtherAssociate` (the only eligible associate(s) rejected this
+  visit last).
 - `assignmentId` on a visit: its current non-rejected assignment, null while
   Waiting. `assignments` lists every offer, rejected ones included (a visit
   can have several `Rejected` entries and at most one other).
@@ -175,8 +180,9 @@ offered. Already accepted -> `replayed: true` with current phase (may be
 Only for a pending offer. Sets `completedAt` and `completionReason: "Rejected"`
 (no `acceptedAt`), logs `AssignmentRejected`, returns the visit to Waiting at
 its original order and dispatches immediately; `status` is the visit status
-after that dispatch. The rejecting associate is not moved (they moved when
-offered) and is immediately eligible again. Already closed (rejected or
+after that dispatch: `Assigned` to another eligible associate or `Waiting` -
+never re-offered to the rejecter. The rejecting associate is not moved (they
+moved when offered) and is immediately eligible for other visitors. Already closed (rejected or
 departed) -> `replayed: true` with the current status. Accepted -> 409
 INVALID_TRANSITION. Accepting a rejected offer -> 409 INVALID_TRANSITION.
 

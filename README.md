@@ -31,8 +31,8 @@ Supabase PostgreSQL
 - Rotation (contract v4): at most one pending offer per associate, offers to
   several associates in parallel; the queue moves when an offer is created;
   accept/reject/outcome/exit never move it. Reject returns the visit to
-  Waiting at its original order and re-dispatches; rejected offers are kept
-  as history. See `docs/CONTRACT_CHANGES.md`.
+  Waiting at its original order and re-dispatches; a visit is never offered
+  to its last rejecter; rejected offers are kept as history. See `docs/CONTRACT_CHANGES.md`.
 - Purchase result lives only on `visits.outcome`; assignments store
   milestones and `completion_reason` (OutcomeRecorded | Departure).
 - Tables: RLS enabled, no access for `anon`/`authenticated`; functions
@@ -159,11 +159,13 @@ curl commands, and [docs/api.http](docs/api.http) for an HTTP-client file.
 Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
 
 - `npm run typecheck`: passes.
-- `npm test`: 81 tests (72 integration + 9 unit).
+- `npm test`: 83 tests (74 integration + 9 unit).
   Includes Reject UP: re-offer to the next eligible associate, re-offer to
   the same associate when alone, original FIFO order, replay/accept/reject
-  conflicts, departure after rejection, concurrent accept vs. reject, and
-  the one-live-assignment-per-visit constraint.
+  conflicts, departure after rejection, concurrent accept vs. reject, the
+  one-live-assignment-per-visit constraint, last-rejecter exclusion (waits
+  with AwaitingOtherAssociate, rejecter takes other visitors, exclusion moves
+  to the newest rejecter) and all three waitingReason values.
   Includes parallel per-associate offers (V1->A, V2->B, V3->C, V4 waits,
   accepting V1 offers V4 to A), queue movement at offer time only, several
   accepted turns per associate, pending-offer departure freeing only that
@@ -181,7 +183,7 @@ Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
   returns; reset atomicity, injected mid-reset failure rollback, concurrent
   resets, in-flight stale commands; snapshot consistency during resets;
   503 mapping for an unreachable database.
-- `npm run acceptance` against `npm run dev` with a disposable database: 51/51 checks.
+- `npm run acceptance` against `npm run dev` with a disposable database: 54/54 checks.
 - Migration 0900 applied to the live local database with v1 data
   (9 visits, 2 OnUP, 1 pending offer) without data loss. Migration 1000 is
   covered by tests; it is applied to the live local database at the next
