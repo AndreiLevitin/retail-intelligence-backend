@@ -128,6 +128,31 @@ describe('POST /api/assignments/{id}/reject', () => {
     expect(board.assignments.map((a) => a.completionReason)).toEqual(['Rejected', 'Rejected', null])
   })
 
+  it('settles fully: one rejection can unlock offers for several visits', async () => {
+    const v: Awaited<ReturnType<typeof arriveVisitor>>[] = []
+    for (let i = 0; i < 4; i++) v.push(await arriveVisitor()) // V1-V3 to A, B, C; V4 waits
+    const [, jamie, morgan] = (await api.board()).associates.map((a) => a.participantId)
+    await reject(v[1]!.assignmentId!) // Jamie rejects V2 -> Jamie takes V4
+    let board = await api.board()
+    const v4offer = board.visits.find((x) => x.visitId === v[3]!.visitId)!.assignmentId!
+    await reject(v4offer) // Jamie rejects V4 too: Jamie idle but excluded from V2 and V4
+    board = await api.board()
+    const waiting = (id: string) => board.visits.find((x) => x.visitId === id)!
+    expect(waiting(v[1]!.visitId)).toMatchObject({ status: 'Waiting', waitingReason: 'AwaitingOtherAssociate' })
+    expect(waiting(v[3]!.visitId)).toMatchObject({ status: 'Waiting', waitingReason: 'AwaitingOtherAssociate' })
+
+    // Morgan rejects V3: V2 -> Morgan, and V3 -> Jamie (not excluded for V3) - two offers from one command.
+    const before = board.assignments.length
+    const response = await reject(v[2]!.assignmentId!)
+    expect(response.body).toMatchObject({ visitId: v[2]!.visitId, status: 'Assigned' })
+    board = await api.board()
+    expect(board.assignments.length).toBe(before + 2)
+    const owner = (id: string) => board.assignments.find((a) => a.assignmentId === waiting(id).assignmentId)!.participantId
+    expect(owner(v[1]!.visitId)).toBe(morgan)
+    expect(owner(v[2]!.visitId)).toBe(jamie)
+    expect(waiting(v[3]!.visitId)).toMatchObject({ status: 'Waiting', waitingReason: 'AwaitingConfirmation' })
+  })
+
   it('reports why Waiting visitors have no offer', async () => {
     for (let i = 0; i < 4; i++) await arriveVisitor()
     let board = await api.board()
