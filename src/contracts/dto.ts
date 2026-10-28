@@ -11,10 +11,11 @@
 
 /**
  * Contract version; see docs/CONTRACT_CHANGES.md.
- * 2 = Advance on Acceptance (associate availability only Available/OffFloor,
- * one pending offer per run, pendingAssignmentId/activeAssignmentIds/activeTurns).
+ * 3 = per-associate confirmation gate: at most one pending offer per
+ *     associate (several associates may hold one at once); the queue moves
+ *     when an offer is created, not on acceptance. Same fields as version 2.
  */
-export const CONTRACT_VERSION = 2
+export const CONTRACT_VERSION = 3
 
 /* ------------------------------------------------------------ enum values */
 
@@ -89,7 +90,11 @@ export interface AssociateView {
    * returning participant takes the new last rank.
    */
   queuePosition: number | null
-  /** The run's single unresolved offer, when it is offered to this participant. */
+  /**
+   * This associate's own pending (unaccepted) offer; at most one per associate,
+   * several associates may hold one at the same time. While set, the
+   * associate receives no new offer and cannot be marked Off Floor.
+   */
   pendingAssignmentId: string | null
   /** Accepted, unfinished assignments (any number), in visit registration order. */
   activeAssignmentIds: string[]

@@ -39,7 +39,7 @@ const assignmentOf = async (visitId: string) =>
 const queue = async () => (await api.board()).associates.map((a) => a.queuePosition)
 
 describe('POST /api/assignments/{id}/accept', () => {
-  it('accepts the pending offer once: moves the associate to the bottom, keeps them Available', async () => {
+  it('accepts the pending offer once: Visit Accepted, associate stays Available, queue not moved again', async () => {
     const { visitId, assignmentId } = await arriveVisitor()
     const response = await accept(assignmentId!)
     expect(response.status).toBe(200)
@@ -67,48 +67,48 @@ describe('POST /api/assignments/{id}/accept', () => {
     expect(await queue()).toEqual([3, 1, 2])
   })
 
-  it('advances on acceptance: A -> B -> C -> A while earlier turns stay unfinished', async () => {
+  it('offers in parallel per associate; acceptance frees the associate for the next visitor (A, B, C, then A)', async () => {
     const v = []
     for (let i = 0; i < 4; i++) v.push(await arriveVisitor())
     let board = await api.board()
     const [a, b, c] = board.associates.map((p) => p.participantId)
-    // Only one offer exists; later arrivals wait behind it.
-    expect(board.assignments).toHaveLength(1)
-    expect(board.visits.map((x) => x.status)).toEqual(['Assigned', 'Waiting', 'Waiting', 'Waiting'])
-    expect(board.associates.every((p) => p.state === 'Available')).toBe(true)
+    // V1->A, V2->B, V3->C are offered at the same time; V4 waits.
+    expect(board.assignments.map((x) => x.participantId)).toEqual([a, b, c])
+    expect(board.visits.map((x) => x.status)).toEqual(['Assigned', 'Assigned', 'Assigned', 'Waiting'])
+    expect(board.associates.map((p) => p.pendingAssignmentId)).toEqual(v.slice(0, 3).map((x) => x.assignmentId))
+    // Each associate moved to the bottom at offer time: A, B, C order is kept.
     expect(board.associates.map((p) => p.queuePosition)).toEqual([1, 2, 3])
-    expect(board.associates[0]!.pendingAssignmentId).toBe(v[0]!.assignmentId)
 
+    // Accept V1: no queue movement from acceptance; A is eligible again and gets V4.
     await accept(v[0]!.assignmentId!)
-    expect((await assignmentOf(v[1]!.visitId)).participantId).toBe(b)
-    await accept((await assignmentOf(v[1]!.visitId)).assignmentId)
-    expect((await assignmentOf(v[2]!.visitId)).participantId).toBe(c)
-    await accept((await assignmentOf(v[2]!.visitId)).assignmentId)
-    // V4 goes to A even though A's V1 assignment is still unfinished.
     const fourth = await assignmentOf(v[3]!.visitId)
     expect(fourth).toMatchObject({ participantId: a, phase: 'PendingAcceptance' })
-
     board = await api.board()
     expect(board.associates[0]).toMatchObject({
-      queuePosition: 1,
+      queuePosition: 3,
       pendingAssignmentId: fourth.assignmentId,
       activeAssignmentIds: [v[0]!.assignmentId],
       activeTurns: 1,
       assignedTurns: 2,
     })
+    expect(board.associates.map((p) => p.queuePosition)).toEqual([3, 1, 2])
 
-    // Sale/NoSale on V1 does not change queue order; repeated acceptance never moves A twice.
+    // Sale/NoSale on V1 does not change queue order; repeated acceptance never moves A again.
     const order = board.associates.map((p) => p.queuePosition)
     await outcome(v[0]!.assignmentId!, 'Sale')
     expect(await queue()).toEqual(order)
     await accept(v[0]!.assignmentId!)
     expect(await queue()).toEqual(order)
+    // Accepting B's offer does not move B either.
+    await accept(v[1]!.assignmentId!)
+    expect(await queue()).toEqual(order)
 
-    // V1 is now completed, so after accepting V4 only V4 is active for A.
-    await accept(fourth.assignmentId)
+    // V4 departing before acceptance frees only A; C's offer is untouched.
+    await api.request('POST', `/api/visits/${v[3]!.visitId}/departure`, { sessionId, outcome: 'NoSale' })
     board = await api.board()
-    expect(board.associates[0]).toMatchObject({ activeAssignmentIds: [fourth.assignmentId], activeTurns: 1, acceptedTurns: 2 })
-    expect(board.metrics).toMatchObject({ visitors: 4, assignedTurns: 4, acceptedTurns: 4, closedSales: 1, conversionRate: 25 })
+    expect(board.associates.map((p) => p.queuePosition)).toEqual(order)
+    expect(board.associates.map((p) => p.pendingAssignmentId)).toEqual([null, null, v[2]!.assignmentId])
+    expect(board.metrics).toMatchObject({ visitors: 4, assignedTurns: 4, acceptedTurns: 2, closedSales: 1, conversionRate: 25 })
   })
 
   it('allows several accepted unfinished assignments for one associate', async () => {
@@ -198,16 +198,18 @@ describe('POST /api/assignments/{id}/outcome', () => {
     expect((await api.board()).assignments[0]!.phase).toBe('PendingAcceptance')
   })
 
-  it('does not create offers: Waiting visitors stay behind a pending offer after an outcome', async () => {
-    const v1 = await arriveVisitor()
-    await accept(v1.assignmentId!) // V2 arrives next and is offered immediately
-    const v2 = await arriveVisitor()
-    const v3 = await arriveVisitor()
-    await outcome(v1.assignmentId!, 'Sale')
+  it('does not create offers or rotate: visitors wait while every associate holds a pending offer', async () => {
+    const v = []
+    for (let i = 0; i < 4; i++) v.push(await arriveVisitor())
+    await accept(v[0]!.assignmentId!) // V4 is offered to A
+    const fifth = await arriveVisitor() // A, B and C all hold a pending offer
+    expect(fifth.assignmentId).toBeNull()
+    const before = await api.board()
+    await outcome(v[0]!.assignmentId!, 'Sale')
     const board = await api.board()
-    expect(board.visits.find((x) => x.visitId === v2.visitId)!.status).toBe('Assigned')
-    expect(board.visits.find((x) => x.visitId === v3.visitId)).toMatchObject({ status: 'Waiting', waitingPosition: 1 })
-    expect(board.assignments).toHaveLength(2)
+    expect(board.visits.find((x) => x.visitId === fifth.visitId)).toMatchObject({ status: 'Waiting', waitingPosition: 1 })
+    expect(board.assignments).toHaveLength(4)
+    expect(board.associates.map((a) => a.queuePosition)).toEqual(before.associates.map((a) => a.queuePosition))
   })
 
   it('serializes concurrent conflicting outcomes: one wins, rotation untouched', async () => {

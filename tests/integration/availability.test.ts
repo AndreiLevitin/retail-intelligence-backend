@@ -43,8 +43,10 @@ describe('POST /api/availability', () => {
     expect(board.assignments[0]!.participantId).toBe(ids.jamie)
     expect(visit.body.status).toBe('Assigned')
 
+    // Jamie moved to the bottom when offered; Alex rejoins below Jamie.
+    expect(await queue()).toEqual([['OffFloor', null], ['Available', 2], ['Available', 1]])
     await setState(ids.alex, 'Available')
-    expect(await queue()).toEqual([['Available', 3], ['Available', 1], ['Available', 2]])
+    expect(await queue()).toEqual([['Available', 3], ['Available', 2], ['Available', 1]])
     const activity = (await api.board()).activity.filter((a) => a.kind === 'AvailabilityChanged')
     expect(activity.map((a) => a.description)).toEqual(['Alex: Off Floor -> Available', 'Alex: Available -> Off Floor'])
     expect(activity[0]).toMatchObject({ participantId: ids.alex, visitId: null, assignmentId: null })
@@ -109,7 +111,7 @@ describe('POST /api/availability', () => {
     expect((await api.arrive(sessionId, {}, commandId)).body.code).toBe('REPLAY_CONFLICT')
   })
 
-  it('keeps visits Waiting when everyone is Off Floor; one return creates exactly one offer', async () => {
+  it('keeps visits Waiting when everyone is Off Floor; each return offers to that associate', async () => {
     for (const id of [ids.alex, ids.jamie, ids.morgan]) await setState(id, 'OffFloor')
     const visits = []
     for (let i = 0; i < 3; i++) visits.push((await api.arrive(sessionId)).body)
@@ -125,14 +127,15 @@ describe('POST /api/availability', () => {
     expect(board.visits.map((v) => v.waitingPosition)).toEqual([null, 1, 2])
     expect(board.activity.slice(0, 2).map((a) => a.kind)).toEqual(['AssignmentCreated', 'AvailabilityChanged'])
 
-    // Further capacity does not bypass the pending offer.
+    // Another return serves the next oldest visitor; Morgan's pending offer is no global gate.
     await setState(ids.jamie, 'Available')
     board = await api.board()
-    expect(board.assignments).toHaveLength(1)
-    expect(board.visits.map((v) => v.status)).toEqual(['Assigned', 'Waiting', 'Waiting'])
+    expect(board.assignments.map((a) => a.participantId)).toEqual([ids.morgan, ids.jamie])
+    expect(board.visits.map((v) => v.status)).toEqual(['Assigned', 'Assigned', 'Waiting'])
+    expect(board.visits[2]!.waitingPosition).toBe(1)
   })
 
-  it('concurrent returns and arrivals still produce exactly one offer, to the oldest visitor', async () => {
+  it('concurrent returns and arrivals: one offer per associate, oldest visitors first', async () => {
     for (const id of [ids.alex, ids.jamie, ids.morgan]) await setState(id, 'OffFloor')
     for (let i = 0; i < 5; i++) await api.arrive(sessionId)
     const responses = await Promise.all([
@@ -144,9 +147,10 @@ describe('POST /api/availability', () => {
     ])
     expect(responses.every((r) => r.status === 200 || r.status === 201)).toBe(true)
     const board = await api.board()
-    expect(board.assignments).toHaveLength(1)
-    expect(board.visits[0]!.status).toBe('Assigned')
-    expect(board.visits.slice(1).map((v) => v.waitingPosition)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(board.assignments).toHaveLength(3)
+    expect(new Set(board.assignments.map((a) => a.participantId)).size).toBe(3)
+    expect(board.visits.slice(0, 3).every((v) => v.status === 'Assigned')).toBe(true)
+    expect(board.visits.slice(3).map((v) => v.waitingPosition)).toEqual([1, 2, 3, 4])
   })
 
   it('validates the body and reports unknown/stale targets', async () => {

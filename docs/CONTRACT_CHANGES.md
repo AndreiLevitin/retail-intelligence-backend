@@ -2,6 +2,41 @@
 
 `CONTRACT_VERSION` in [`src/contracts/dto.ts`](../src/contracts/dto.ts).
 
+## Version 3 - per-associate offers (behavior change, same fields)
+
+Source: corrected `Assignment Rotation Revision.md` (same day). Version 2 had a
+single pending-offer gate for the whole run and moved the queue on acceptance;
+both were wrong.
+
+| v2 | v3 |
+|---|---|
+| At most one pending offer per **run** | At most one pending offer per **associate**; several associates may hold one at once |
+| Later arrivals waited behind the single offer | A new arrival goes to the front-of-queue eligible associate (Available, no own pending offer) |
+| Offer kept the associate's queue position | **Offer** moves the associate to the queue bottom |
+| **Accept** moved the associate to the bottom | Accept never moves the queue; it re-dispatches because the associate is eligible again |
+| Pending-offer departure cleared the run-wide gate | Pending-offer departure frees only that associate; queue unchanged |
+| OffFloor rejected for the run's offer owner | OffFloor rejected for any associate holding their own pending offer |
+
+Unchanged: all request bodies and DTO fields (including `pendingAssignmentId`,
+`activeAssignmentIds`, `activeTurns`), outcome rules, accepted-work rules,
+CORS, errors.
+
+Waiting reason (derived, no new field): no associate Available -> "No
+available associates"; else every Available associate has
+`pendingAssignmentId !== null` -> "Awaiting confirmation".
+
+Example: A, B, C Available; V1-V4 arrive -> V1->A, V2->B, V3->C in parallel,
+V4 waits; accept V1 -> V4 offered to A (A now at the bottom); Sale on V1 and
+further accepts do not move the queue; V4 departing before acceptance frees
+only A.
+
+Migration `supabase/migrations/20261028000100_per_associate_offers.sql`:
+stops with a report if one participant has several pending offers; replaces
+`assignments_one_pending_offer_per_session` with
+`assignments_one_pending_offer_per_participant`; replaces the dispatcher and
+accept function; moves existing pending-offer owners to the queue bottom and
+offers Waiting visitors to the associates now eligible.
+
 ## Version 2 - Advance on Acceptance (breaking)
 
 Source: `Assignment Rotation Revision.md`; `Backend Requirements.md`, section

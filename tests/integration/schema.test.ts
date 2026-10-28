@@ -76,7 +76,7 @@ describe('seeded setup', () => {
 })
 
 describe('integrity constraints', () => {
-  it('allows one pending offer per run but several accepted unfinished assignments per participant', async () => {
+  it('allows one pending offer per participant and several accepted unfinished assignments', async () => {
     const sessionId = await currentSessionId(db)
     const [alex, jamie] = await participants(sessionId)
     await inRollback(async (client) => {
@@ -91,11 +91,14 @@ describe('integrity constraints', () => {
       // Two accepted unfinished assignments for Alex are valid.
       await client.query(insert, [sessionId, visits.rows[0]!.id, alex!.id, new Date(Date.now() + 1000)])
       await client.query(insert, [sessionId, visits.rows[1]!.id, alex!.id, new Date(Date.now() + 1000)])
-      // One pending offer is valid; a second one in the same run is not, whoever owns it.
+      // Pending offers for different participants coexist; a second one for Alex does not.
       await client.query(insert, [sessionId, visits.rows[2]!.id, alex!.id, null])
-      await expect(client.query(insert, [sessionId, visits.rows[3]!.id, jamie!.id, null])).rejects.toThrow(
-        /assignments_one_pending_offer_per_session/,
+      await client.query('savepoint s')
+      await expect(client.query(insert, [sessionId, visits.rows[3]!.id, alex!.id, null])).rejects.toThrow(
+        /assignments_one_pending_offer_per_participant/,
       )
+      await client.query('rollback to savepoint s')
+      await client.query(insert, [sessionId, visits.rows[3]!.id, jamie!.id, null])
     })
   })
 

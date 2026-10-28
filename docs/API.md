@@ -1,7 +1,7 @@
 # Digital UP Board API - Stage 1
 
-Contract version **2** (Advance on Acceptance) - see
-[CONTRACT_CHANGES.md](CONTRACT_CHANGES.md) for the breaking change from v1.
+Contract version **3** (per-associate offers) - see
+[CONTRACT_CHANGES.md](CONTRACT_CHANGES.md) for the changes from v1 and v2.
 
 Canonical types: [`src/contracts/dto.ts`](../src/contracts/dto.ts) and
 [`src/contracts/errors.ts`](../src/contracts/errors.ts) (dependency-free; the
@@ -12,14 +12,21 @@ section 6, `Assignment Rotation Revision.md` and `Prototype Design.md`.
 
 - Associate availability is `Available` or `OffFloor` only; accepted work never
   makes an associate ineligible.
-- At most one **pending offer** exists per run: the oldest Waiting visitor
-  still inside is offered to the first Available associate. The associate's
-  queue position does not change. Later visitors wait ("Awaiting
-  confirmation") until the offer is resolved.
-- **Accept** moves the associate to the queue bottom exactly once and offers
-  the next oldest Waiting visitor.
-- Outcome and departure never change rotation. Departure of a pending offer
-  closes it without consuming the associate's turn and offers the next visitor.
+- Each associate holds at most one **pending offer** of their own; several
+  associates may hold one at the same time. The oldest Waiting visitor still
+  inside is offered to the front-of-queue **eligible** associate (Available
+  and without a pending offer), repeatedly, so three free associates receive
+  three visitors in parallel.
+- Creating an offer moves that associate to the queue bottom immediately
+  (optimistically assuming they confirm).
+- **Accept** records acceptance only - no queue movement - and, since the
+  associate is eligible again, offers them (or whoever is next eligible) the
+  oldest Waiting visitor.
+- Outcome and departure never change the queue. Departure of a pending offer
+  closes it and frees only that associate for a new offer.
+- A visitor waits only when no associate is eligible: nobody Available ("No
+  available associates") or every Available associate already holds an offer
+  ("Awaiting confirmation").
 
 ## Conventions
 
@@ -104,10 +111,11 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
 - `associates`: stable initial roster order; Next UP = `queuePosition === 1`.
 - `visits` / `assignments`: server registration order of the visit (FIFO).
 - `waitingPosition`: 1-based rank among Waiting visitors still inside.
-- Waiting reason (derived): a `PendingAcceptance` assignment exists ->
-  "Awaiting confirmation"; else no `Available` associate -> "No available associates".
-- `pendingAssignmentId`: the run's single pending offer, if it is this
-  associate's. `activeAssignmentIds` / `activeTurns`: accepted unfinished work.
+- Waiting reason (derived): no associate with `state === 'Available'` ->
+  "No available associates"; otherwise every Available associate has a
+  non-null `pendingAssignmentId` -> "Awaiting confirmation".
+- `pendingAssignmentId`: this associate's own pending offer (at most one).
+  `activeAssignmentIds` / `activeTurns`: accepted unfinished work.
 - Presence is derived: `departedAt === null` -> Inside, otherwise Left.
 - `activity`: newest first, at most 100; metrics cover the whole run.
 - `conversionRate`: `closedSales / visitors * 100` (0 for no visits), unrounded.
@@ -138,20 +146,20 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
 
 `{ "sessionId": "8b6f…", "participantId": "c2…", "replayed": false }`
 
-`OffFloor` is rejected (409 INVALID_TRANSITION) only for the associate who owns
-the pending offer - resolve it first. Accepted unfinished work does not block
-it and is kept. Same state = no-op. Returning Available appends to the queue
-bottom and creates an offer if none is pending. A replay returns the saved
-acknowledgement and never reapplies.
+`OffFloor` is rejected (409 INVALID_TRANSITION) only for an associate who holds
+their own pending offer - resolve it first. Accepted unfinished work does not
+block it and is kept. Same state = no-op. Returning Available appends to the
+queue bottom and offers Waiting visitors to eligible associates. A replay
+returns the saved acknowledgement and never reapplies.
 
 ### POST /api/assignments/{assignmentId}/accept -> 200 AcceptanceResult
 
 `{ "sessionId": "8b6f…" }` -> `{ "sessionId": "…", "assignmentId": "d4…", "phase": "Accepted", "replayed": false }`
 
-Moves the associate to the queue bottom exactly once (they stay Available),
-then offers the oldest Waiting visitor. Already accepted -> `replayed: true`
-with current phase (may be `Completed`), no movement. Closed by departure
-before acceptance -> 409 INVALID_TRANSITION.
+Records acceptance; the queue does not move (it moved when the offer was
+created). The associate becomes eligible again and Waiting visitors are
+offered. Already accepted -> `replayed: true` with current phase (may be
+`Completed`). Closed by departure before acceptance -> 409 INVALID_TRANSITION.
 
 ### POST /api/assignments/{assignmentId}/outcome -> 200 OutcomeResult
 
@@ -186,8 +194,8 @@ queue. Allowed after departure. Unchanged profile -> no activity entry.
 - Visit with result: omitted/matching `outcome` accepted; different -> 409 OUTCOME_CONFLICT.
 - Waiting: no assignment is created.
 - Pending offer: closes with `completionReason: "Departure"`, no acceptance;
-  the associate keeps their queue position (turn not consumed) and the next
-  oldest Waiting visitor is offered.
+  the queue does not move (it already moved at offer time); only that
+  associate becomes eligible again and may be offered the next Waiting visitor.
 - Accepted: closes with `completionReason: "Departure"`, `acceptedAt` kept;
   rotation unchanged. Completed service: nothing but the exit is recorded.
 - Repeated exit -> `replayed: true` with the original `departedAt`.

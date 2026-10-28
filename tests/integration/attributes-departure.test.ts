@@ -116,8 +116,8 @@ describe('POST /api/visits/{id}/departure', () => {
   const queue = async () => (await api.board()).associates.map((a) => a.queuePosition)
 
   it('Waiting visitor: requires a result, creates no assignment, Sale counts without assignment', async () => {
-    await arriveVisitor() // holds the pending offer
-    await arriveVisitor()
+    for (let i = 0; i < 3; i++) await arriveVisitor() // every associate holds an offer
+    const later = await arriveVisitor()
     const waiting = await arriveVisitor()
     expect(waiting.assignmentId).toBeNull()
 
@@ -132,33 +132,44 @@ describe('POST /api/visits/{id}/departure', () => {
     expect(await tableCounts(db)).toEqual({ ...before, activity: before.activity + 1 })
 
     const board = await api.board()
-    expect(board.visits[2]).toMatchObject({ status: 'Completed', outcome: 'Sale', departedAt: response.body.departedAt, waitingPosition: null, assignmentId: null })
-    expect(board.visits[1]!.waitingPosition).toBe(1)
+    expect(board.visits[4]).toMatchObject({ status: 'Completed', outcome: 'Sale', departedAt: response.body.departedAt, waitingPosition: null, assignmentId: null })
+    expect(board.visits.find((v) => v.visitId === later.visitId)!.waitingPosition).toBe(1)
     expect(board.activity[0]).toMatchObject({ kind: 'VisitorDeparted', visitId: waiting.visitId, participantId: null, assignmentId: null })
-    expect(board.metrics).toEqual({ visitors: 3, assignedTurns: 1, acceptedTurns: 0, closedSales: 1, conversionRate: 100 / 3 })
+    expect(board.metrics).toEqual({ visitors: 5, assignedTurns: 3, acceptedTurns: 0, closedSales: 1, conversionRate: 20 })
   })
 
-  it('pending offer: closes with Departure, does not consume the turn and offers the next visitor', async () => {
-    const first = await arriveVisitor()
-    const second = await arriveVisitor()
+  it('pending offer: closes with Departure, does not move the queue, frees only that associate', async () => {
+    const first = await arriveVisitor() // Alex, moved to the bottom at offer time
     const before = await api.board()
+    expect(before.associates.map((a) => a.queuePosition)).toEqual([3, 1, 2])
     const response = await depart(first.visitId, 'NoSale')
     expect(response.status).toBe(200)
 
     const board = await api.board()
     const closed = board.assignments.find((a) => a.assignmentId === first.assignmentId)!
     expect(closed).toMatchObject({ phase: 'Completed', completionReason: 'Departure', acceptedAt: null })
-    // Queue unchanged: Alex keeps position 1 and receives the next offer.
-    expect(board.associates.map((a) => a.queuePosition)).toEqual(before.associates.map((a) => a.queuePosition))
-    const next = board.assignments.find((a) => a.visitId === second.visitId)!
-    const alex = board.associates[0]!
-    expect(next.participantId).toBe(alex.participantId)
-    expect(alex).toMatchObject({ state: 'Available', queuePosition: 1, pendingAssignmentId: next.assignmentId, assignedTurns: 2, acceptedTurns: 0 })
-    expect(board.activity.slice(0, 3).map((a) => a.kind)).toEqual(['AssignmentCreated', 'TurnCompleted', 'VisitorDeparted'])
-    expect(board.metrics).toMatchObject({ assignedTurns: 2, acceptedTurns: 0 })
+    expect(board.associates.map((a) => a.queuePosition)).toEqual([3, 1, 2])
+    expect(board.associates[0]).toMatchObject({ pendingAssignmentId: null, assignedTurns: 1, acceptedTurns: 0 })
+    expect(board.activity.slice(0, 2).map((a) => a.kind)).toEqual(['TurnCompleted', 'VisitorDeparted'])
 
     expect((await accept(first.assignmentId!)).body.code).toBe('INVALID_TRANSITION')
     expect((await outcome(first.assignmentId!, 'NoSale')).body.code).toBe('INVALID_TRANSITION')
+  })
+
+  it('pending offer departure lets the freed associate take the next Waiting visitor', async () => {
+    const offers = []
+    for (let i = 0; i < 3; i++) offers.push(await arriveVisitor())
+    const waiting = await arriveVisitor()
+    await depart(offers[0]!.visitId, 'NoSale')
+    const board = await api.board()
+    const next = board.assignments.find((a) => a.visitId === waiting.visitId)!
+    const alex = board.associates[0]!
+    expect(next.participantId).toBe(alex.participantId)
+    // The new offer (not the departure) moves Alex to the bottom; B and C keep their offers.
+    expect(board.associates.map((a) => a.queuePosition)).toEqual([3, 1, 2])
+    expect(board.associates.map((a) => a.pendingAssignmentId)).toEqual([next.assignmentId, offers[1]!.assignmentId, offers[2]!.assignmentId])
+    expect(board.activity.slice(0, 3).map((a) => a.kind)).toEqual(['AssignmentCreated', 'TurnCompleted', 'VisitorDeparted'])
+    expect(board.metrics).toMatchObject({ assignedTurns: 4, acceptedTurns: 0 })
   })
 
   it('accepted assignment: closes with Departure, keeps acceptedAt, does not move rotation', async () => {

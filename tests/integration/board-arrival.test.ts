@@ -74,7 +74,7 @@ describe('GET /api/board', () => {
 })
 
 describe('POST /api/arrivals', () => {
-  it('registers a Manual visit and offers it to the first Available associate without moving the queue', async () => {
+  it('registers a Manual visit, offers it to the first eligible associate and moves them to the bottom', async () => {
     const response = await api.arrive(sessionId, { accessoryDescription: '  Backpack  ' })
     expect(response.status).toBe(201)
     expect(response.headers.get('cache-control')).toBe('no-store')
@@ -109,26 +109,28 @@ describe('POST /api/arrivals', () => {
     })
     expect(alex).toMatchObject({
       state: 'Available',
-      queuePosition: 1,
+      queuePosition: 3,
       pendingAssignmentId: assignment!.assignmentId,
       activeAssignmentIds: [],
       activeTurns: 0,
       assignedTurns: 1,
     })
-    expect([jamie!.queuePosition, morgan!.queuePosition]).toEqual([2, 3])
+    expect([jamie!.queuePosition, morgan!.queuePosition]).toEqual([1, 2])
     expect(board.activity.map((a) => a.kind)).toEqual(['AssignmentCreated', 'ArrivalRecorded'])
     expect(board.activity[0]).toMatchObject({ visitId: visit!.visitId, participantId: alex!.participantId, assignmentId: assignment!.assignmentId })
     expect(board.metrics).toEqual({ visitors: 1, assignedTurns: 1, acceptedTurns: 0, closedSales: 0, conversionRate: 0 })
   })
 
-  it('holds later arrivals Waiting in FIFO order behind the single pending offer', async () => {
+  it('offers in parallel to each eligible associate; later arrivals wait in FIFO order', async () => {
     const ids: string[] = []
     for (let i = 0; i < 5; i++) ids.push((await api.arrive(sessionId)).body.visitId)
     const board = await api.board()
     expect(board.visits.map((v) => v.visitId)).toEqual(ids)
-    expect(board.visits.map((v) => v.status)).toEqual(['Assigned', 'Waiting', 'Waiting', 'Waiting', 'Waiting'])
-    expect(board.visits.map((v) => v.waitingPosition)).toEqual([null, 1, 2, 3, 4])
-    expect(board.assignments).toHaveLength(1)
+    expect(board.visits.map((v) => v.status)).toEqual(['Assigned', 'Assigned', 'Assigned', 'Waiting', 'Waiting'])
+    expect(board.visits.map((v) => v.waitingPosition)).toEqual([null, null, null, 1, 2])
+    expect(board.assignments.map((a) => a.participantId)).toEqual(board.associates.map((a) => a.participantId))
+    expect(board.associates.map((a) => a.pendingAssignmentId)).toEqual(board.assignments.map((a) => a.assignmentId))
+    // Each moved to the bottom when offered, so the relative order is kept.
     expect(board.associates.map((a) => [a.state, a.queuePosition])).toEqual([['Available', 1], ['Available', 2], ['Available', 3]])
   })
 
@@ -153,16 +155,16 @@ describe('POST /api/arrivals', () => {
     expect(await tableCounts(db)).toEqual(before)
   })
 
-  it('serializes simultaneous distinct arrivals: distinct visits, FIFO order, exactly one offer', async () => {
+  it('serializes simultaneous distinct arrivals: distinct visits, FIFO offers, one offer per associate', async () => {
     const responses = await Promise.all(Array.from({ length: 12 }, () => api.arrive(sessionId)))
     expect(responses.every((r) => r.status === 201)).toBe(true)
     const board = await api.board()
     expect(new Set(board.visits.map((v) => v.visitId)).size).toBe(12)
-    // The first registration (server order) holds the only offer.
-    expect(board.visits[0]!.status).toBe('Assigned')
-    expect(board.visits.slice(1).map((v) => v.waitingPosition)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-    expect(board.assignments).toHaveLength(1)
-    expect(board.assignments[0]!.visitId).toBe(board.visits[0]!.visitId)
+    // The first three registrations (server order) hold the three offers.
+    expect(board.visits.slice(0, 3).every((v) => v.status === 'Assigned')).toBe(true)
+    expect(board.visits.slice(3).map((v) => v.waitingPosition)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(board.assignments).toHaveLength(3)
+    expect(new Set(board.assignments.map((a) => a.participantId)).size).toBe(3)
     const arrivedAt = board.visits.map((v) => v.arrivedAt)
     expect([...arrivedAt].sort()).toEqual(arrivedAt)
     expect(board.metrics.visitors).toBe(12)

@@ -28,9 +28,9 @@ Supabase PostgreSQL
 - Every mutation locks the single `demo_control` row, then checks `sessionId`,
   so writes (including reset) are serialized and stale runs are rejected.
 - The board is one `STABLE` SQL statement: always one committed run.
-- Rotation (contract v2, "Advance on Acceptance"): one pending offer per run;
-  acceptance moves the associate to the queue bottom and offers the next
-  visitor; outcome/exit never rotate. See `docs/CONTRACT_CHANGES.md`.
+- Rotation (contract v3): at most one pending offer per associate, offers to
+  several associates in parallel; the queue moves when an offer is created;
+  accept/outcome/exit never move it. See `docs/CONTRACT_CHANGES.md`.
 - Purchase result lives only on `visits.outcome`; assignments store
   milestones and `completion_reason` (OutcomeRecorded | Departure).
 - Tables: RLS enabled, no access for `anon`/`authenticated`; functions
@@ -113,9 +113,10 @@ psql "$SUPABASE_DB_URL" -f supabase/seed.sql   # optional, idempotent
 
 Migration `20261027000300_roster_setup.sql` already creates the roster (Alex,
 Jamie, Morgan with fixed IDs) and the first run, so a pushed database is
-ready. Migration `20261027000900_advance_on_acceptance.sql` converts data from
-the earlier rotation model and stops with a report if a run has several
-pending offers (reconcile them first). Running setup again never erases an active demo; `POST /api/demo/reset`
+ready. Migrations `20261027000900_advance_on_acceptance.sql` and
+`20261028000100_per_associate_offers.sql` convert data from earlier rotation
+models; each stops with a report when existing pending offers conflict with
+its new uniqueness rule (reconcile them first). Running setup again never erases an active demo; `POST /api/demo/reset`
 is the only destructive operation. For `supabase db reset` locally, `seed.sql`
 runs automatically. Set the three server variables in Vercel project
 settings; leave `DATABASE_URL` unset there.
@@ -155,12 +156,13 @@ curl commands, and [docs/api.http](docs/api.http) for an HTTP-client file.
 Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
 
 - `npm run typecheck`: passes.
-- `npm test`: 70 tests (61 integration + 9 unit), repeated runs stable.
-  Includes the Advance-on-Acceptance A/B/C/A regression, confirmation gate,
-  several accepted turns per associate, pending-offer departure, offer-owner
-  Off Floor rejection, the data migration (stop on multiple pending offers,
-  conversion after reconciliation) and CORS (unit, store stubbed to prove
-  preflight/rejection never reach it).
+- `npm test`: 72 tests (63 integration + 9 unit).
+  Includes parallel per-associate offers (V1->A, V2->B, V3->C, V4 waits,
+  accepting V1 offers V4 to A), queue movement at offer time only, several
+  accepted turns per associate, pending-offer departure freeing only that
+  associate, offer-owner Off Floor rejection, both data migrations (stop on
+  conflicting pending offers, conversion after reconciliation) and CORS
+  (unit, store stubbed to prove preflight/rejection never reach it).
   Covers seed determinism and idempotent setup; constraints and grants;
   manual arrival, assignment, accept and outcome; 12 simultaneous distinct
   arrivals; concurrent same-eventId retries; changed-payload conflict;
@@ -172,9 +174,11 @@ Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
   returns; reset atomicity, injected mid-reset failure rollback, concurrent
   resets, in-flight stale commands; snapshot consistency during resets;
   503 mapping for an unreachable database.
-- `npm run acceptance` against `npm run dev` + `npm run db:local`: 44/44 checks.
+- `npm run acceptance` against `npm run dev` with a disposable database: 45/45 checks.
 - Migration 0900 applied to the live local database with v1 data
-  (9 visits, 2 OnUP, 1 pending offer) without data loss.
+  (9 visits, 2 OnUP, 1 pending offer) without data loss. Migration 1000 is
+  covered by tests; it is applied to the live local database at the next
+  `npm run db:local`.
 
 Not verified (no environment or authorization available in this session):
 
