@@ -2,6 +2,32 @@
 
 `CONTRACT_VERSION` in [`src/contracts/dto.ts`](../src/contracts/dto.ts).
 
+## Version 4 - Reject UP (additive)
+
+Source: `Assignment Rotation Revision.md` rules 9-10 and "Reject UP" section;
+user-confirmed decision to keep rejected offers as history.
+
+- New endpoint `POST /api/assignments/{assignmentId}/reject`, body
+  `{ sessionId }` (same shape as accept, no idempotency key), result
+  `RejectionResult { sessionId, assignmentId, visitId, status, replayed }`.
+- `completionReason` adds `'Rejected'`; `ActivityKind` adds `'AssignmentRejected'`.
+- Reject is valid only for a pending offer. Accepted -> 409 INVALID_TRANSITION;
+  already closed -> `replayed: true` with the current visit status.
+- The visit returns to `Waiting` at its original registration order; the
+  rejecting associate is not moved; dispatch runs at once. Because the
+  rejecting associate is eligible again, the visit is normally re-offered
+  immediately (`status: 'Assigned'`), possibly to the same associate.
+- A visit can now have several assignments: any number with
+  `completionReason: 'Rejected'` and at most one other. `BoardSnapshot.assignments`
+  lists them all; `VisitView.assignmentId` is the non-rejected one and is
+  `null` while the visit is Waiting.
+- `assignedTurns` counts rejected offers too; `acceptedTurns` does not.
+
+Migration `supabase/migrations/20261028000200_reject_up.sql`: adds the enum
+values, replaces `UNIQUE(visit_id)` with a partial unique index on non-rejected
+assignments, adds `upb_reject_assignment` and updates board, departure and
+accept accordingly.
+
 ## Version 3 - per-associate offers (behavior change, same fields)
 
 Source: corrected `Assignment Rotation Revision.md` (same day). Version 2 had a

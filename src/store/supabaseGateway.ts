@@ -14,6 +14,7 @@ import {
   type DepartureResult,
   type DomainErrorCode,
   type OutcomeResult,
+  type RejectionResult,
   type ResetResult,
 } from '../contracts/index.js'
 import { RpcError, type RpcClient } from './rpc.js'
@@ -25,6 +26,7 @@ import {
   type AvailabilityCommand,
   type DepartureCommand,
   type OutcomeCommand,
+  type RejectionCommand,
   type ResetCommand,
   type WorkflowStore,
 } from './workflowStore.js'
@@ -90,6 +92,13 @@ export class SupabaseGateway implements WorkflowStore {
 
   acceptAssignment(command: AcceptanceCommand): Promise<AcceptanceResult> {
     return this.invoke<AcceptanceResult>('upb_accept_assignment', {
+      p_session_id: command.sessionId,
+      p_assignment_id: command.assignmentId,
+    })
+  }
+
+  rejectAssignment(command: RejectionCommand): Promise<RejectionResult> {
+    return this.invoke<RejectionResult>('upb_reject_assignment', {
       p_session_id: command.sessionId,
       p_assignment_id: command.assignmentId,
     })

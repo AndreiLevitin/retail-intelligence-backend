@@ -1,7 +1,7 @@
 # Digital UP Board API - Stage 1
 
-Contract version **3** (per-associate offers) - see
-[CONTRACT_CHANGES.md](CONTRACT_CHANGES.md) for the changes from v1 and v2.
+Contract version **4** (per-associate offers + Reject UP) - see
+[CONTRACT_CHANGES.md](CONTRACT_CHANGES.md) for the changes from earlier versions.
 
 Canonical types: [`src/contracts/dto.ts`](../src/contracts/dto.ts) and
 [`src/contracts/errors.ts`](../src/contracts/errors.ts) (dependency-free; the
@@ -24,6 +24,10 @@ section 6, `Assignment Rotation Revision.md` and `Prototype Design.md`.
   oldest Waiting visitor.
 - Outcome and departure never change the queue. Departure of a pending offer
   closes it and frees only that associate for a new offer.
+- **Reject** closes a pending offer (`Rejected`) without moving the queue and
+  returns the visit to Waiting at its original registration order; dispatch
+  runs immediately, so the visit is offered again right away - possibly to
+  the same associate if nobody else is eligible.
 - A visitor waits only when no associate is eligible: nobody Available ("No
   available associates") or every Available associate already holds an offer
   ("Awaiting confirmation").
@@ -114,6 +118,9 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
 - Waiting reason (derived): no associate with `state === 'Available'` ->
   "No available associates"; otherwise every Available associate has a
   non-null `pendingAssignmentId` -> "Awaiting confirmation".
+- `assignmentId` on a visit: its current non-rejected assignment, null while
+  Waiting. `assignments` lists every offer, rejected ones included (a visit
+  can have several `Rejected` entries and at most one other).
 - `pendingAssignmentId`: this associate's own pending offer (at most one).
   `activeAssignmentIds` / `activeTurns`: accepted unfinished work.
 - Presence is derived: `departedAt === null` -> Inside, otherwise Left.
@@ -160,6 +167,18 @@ Records acceptance; the queue does not move (it moved when the offer was
 created). The associate becomes eligible again and Waiting visitors are
 offered. Already accepted -> `replayed: true` with current phase (may be
 `Completed`). Closed by departure before acceptance -> 409 INVALID_TRANSITION.
+
+### POST /api/assignments/{assignmentId}/reject -> 200 RejectionResult
+
+`{ "sessionId": "8b6f…" }` -> `{ "sessionId": "…", "assignmentId": "d4…", "visitId": "v1…", "status": "Assigned", "replayed": false }`
+
+Only for a pending offer. Sets `completedAt` and `completionReason: "Rejected"`
+(no `acceptedAt`), logs `AssignmentRejected`, returns the visit to Waiting at
+its original order and dispatches immediately; `status` is the visit status
+after that dispatch. The rejecting associate is not moved (they moved when
+offered) and is immediately eligible again. Already closed (rejected or
+departed) -> `replayed: true` with the current status. Accepted -> 409
+INVALID_TRANSITION. Accepting a rejected offer -> 409 INVALID_TRANSITION.
 
 ### POST /api/assignments/{assignmentId}/outcome -> 200 OutcomeResult
 

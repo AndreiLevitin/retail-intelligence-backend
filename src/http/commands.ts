@@ -11,6 +11,7 @@ import type {
   AvailabilityCommand,
   DepartureCommand,
   OutcomeCommand,
+  RejectionCommand,
   ResetCommand,
 } from '../store/workflowStore.js'
 import { HttpError } from './responses.js'
@@ -94,4 +95,12 @@ export function parseAvailability(body: JsonObject): AvailabilityCommand {
 export function parseReset(body: JsonObject): ResetCommand {
   onlyKeys(body, ['sessionId'])
   return { sessionId: requiredUuid(body, 'sessionId') }
+}
+
+export function parseRejection(body: JsonObject, params: Record<string, string>): RejectionCommand {
+  onlyKeys(body, ['sessionId'])
+  return {
+    sessionId: requiredUuid(body, 'sessionId'),
+    assignmentId: uuid(params.assignmentId, 'assignmentId'),
+  }
 }

@@ -9,6 +9,7 @@ import {
   parseAvailability,
   parseDeparture,
   parseOutcome,
+  parseRejection,
   parseReset,
 } from './commands.js'
 import { jsonResponse } from './responses.js'
@@ -49,6 +50,16 @@ export const acceptRoute: RouteDefinition = {
     POST: async ({ request, params, store }) => {
       const command = parseAcceptance(await readJsonObject(request), params)
       return jsonResponse(200, await store.acceptAssignment(command))
+    },
+  },
+}
+
+export const rejectRoute: RouteDefinition = {
+  path: '/api/assignments/:assignmentId/reject',
+  methods: {
+    POST: async ({ request, params, store }) => {
+      const command = parseRejection(await readJsonObject(request), params)
+      return jsonResponse(200, await store.rejectAssignment(command))
     },
   },
 }
@@ -98,6 +109,7 @@ export const routes: readonly RouteDefinition[] = [
   arrivalsRoute,
   availabilityRoute,
   acceptRoute,
+  rejectRoute,
   outcomeRoute,
   attributesRoute,
   departureRoute,

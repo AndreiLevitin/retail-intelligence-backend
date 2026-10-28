@@ -10,6 +10,7 @@ import { adminUrl, createDatabase, dropDatabase, migrate } from '../../scripts/l
 
 const BEFORE_REVISION = '20261027000800_reset.sql'
 const PER_SESSION_REVISION = '20261027000900_advance_on_acceptance.sql'
+const PER_ASSOCIATE_REVISION = '20261028000100_per_associate_offers.sql'
 
 let port: number
 let name: string
@@ -103,7 +104,7 @@ describe('rotation data migrations', () => {
   it('per-associate migration moves the pending owner, offers Waiting visitors to eligible associates', async () => {
     // State from the previous test: Alex and Jamie hold accepted work, Morgan
     // holds the run's single pending offer (V3), V4 is Waiting.
-    await migrate(port, name)
+    await migrate(port, name, { through: PER_ASSOCIATE_REVISION })
 
     const board = (await sql(`select public.upb_get_board() as b`))[0].b
     const byName = Object.fromEntries(board.associates.map((a: any) => [a.displayName, a]))

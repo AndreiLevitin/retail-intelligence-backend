@@ -28,9 +28,11 @@ Supabase PostgreSQL
 - Every mutation locks the single `demo_control` row, then checks `sessionId`,
   so writes (including reset) are serialized and stale runs are rejected.
 - The board is one `STABLE` SQL statement: always one committed run.
-- Rotation (contract v3): at most one pending offer per associate, offers to
+- Rotation (contract v4): at most one pending offer per associate, offers to
   several associates in parallel; the queue moves when an offer is created;
-  accept/outcome/exit never move it. See `docs/CONTRACT_CHANGES.md`.
+  accept/reject/outcome/exit never move it. Reject returns the visit to
+  Waiting at its original order and re-dispatches; rejected offers are kept
+  as history. See `docs/CONTRACT_CHANGES.md`.
 - Purchase result lives only on `visits.outcome`; assignments store
   milestones and `completion_reason` (OutcomeRecorded | Departure).
 - Tables: RLS enabled, no access for `anon`/`authenticated`; functions
@@ -146,6 +148,7 @@ curl commands, and [docs/api.http](docs/api.http) for an HTTP-client file.
 | `POST /api/arrivals` | 201 new / 200 identical replay (`duplicate: true`) |
 | `POST /api/availability` | 200 |
 | `POST /api/assignments/{id}/accept` | 200 |
+| `POST /api/assignments/{id}/reject` | 200 |
 | `POST /api/assignments/{id}/outcome` | 200 |
 | `PATCH /api/visits/{id}/attributes` | 200 |
 | `POST /api/visits/{id}/departure` | 200 |
@@ -156,7 +159,11 @@ curl commands, and [docs/api.http](docs/api.http) for an HTTP-client file.
 Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
 
 - `npm run typecheck`: passes.
-- `npm test`: 72 tests (63 integration + 9 unit).
+- `npm test`: 81 tests (72 integration + 9 unit).
+  Includes Reject UP: re-offer to the next eligible associate, re-offer to
+  the same associate when alone, original FIFO order, replay/accept/reject
+  conflicts, departure after rejection, concurrent accept vs. reject, and
+  the one-live-assignment-per-visit constraint.
   Includes parallel per-associate offers (V1->A, V2->B, V3->C, V4 waits,
   accepting V1 offers V4 to A), queue movement at offer time only, several
   accepted turns per associate, pending-offer departure freeing only that
@@ -174,7 +181,7 @@ Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
   returns; reset atomicity, injected mid-reset failure rollback, concurrent
   resets, in-flight stale commands; snapshot consistency during resets;
   503 mapping for an unreachable database.
-- `npm run acceptance` against `npm run dev` with a disposable database: 45/45 checks.
+- `npm run acceptance` against `npm run dev` with a disposable database: 51/51 checks.
 - Migration 0900 applied to the live local database with v1 data
   (9 visits, 2 OnUP, 1 pending offer) without data loss. Migration 1000 is
   covered by tests; it is applied to the live local database at the next

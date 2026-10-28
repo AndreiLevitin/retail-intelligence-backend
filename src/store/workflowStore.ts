@@ -17,6 +17,7 @@ import type {
   DomainErrorCode,
   Outcome,
   OutcomeResult,
+  RejectionResult,
   ResetResult,
   VisitorAttributes,
 } from '../contracts/index.js'
@@ -30,6 +31,11 @@ export interface ArrivalCommand {
 }
 
 export interface AcceptanceCommand {
+  sessionId: string
+  assignmentId: string
+}
+
+export interface RejectionCommand {
   sessionId: string
   assignmentId: string
 }
@@ -72,6 +78,7 @@ export interface WorkflowStore {
   registerArrival(command: ArrivalCommand): Promise<ArrivalResult>
   setAvailability(command: AvailabilityCommand): Promise<AvailabilityResult>
   acceptAssignment(command: AcceptanceCommand): Promise<AcceptanceResult>
+  rejectAssignment(command: RejectionCommand): Promise<RejectionResult>
   recordOutcome(command: OutcomeCommand): Promise<OutcomeResult>
   updateVisitorAttributes(command: AttributesCommand): Promise<AttributesResult>
   recordDeparture(command: DepartureCommand): Promise<DepartureResult>

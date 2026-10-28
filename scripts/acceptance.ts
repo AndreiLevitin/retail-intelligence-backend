@@ -13,7 +13,7 @@
  * add Waiting visitor -> exit without assignment -> restore capacity ->
  * exit after the associate started another turn -> replays/stale -> reset ->
  * per-associate offers (parallel offers, per-associate confirmation gate,
- * queue moves at offer time, pending-offer departure) -> reset.
+ * queue moves at offer time, pending-offer departure) -> Reject UP -> reset.
  */
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -181,6 +181,19 @@ async function main(): Promise<void> {
   b = await board()
   check(b.associates.map((a) => a.queuePosition).join() === order && b.associates[0]!.pendingAssignmentId === null, 'pending V4 departure frees Alex without moving the queue')
   check(b.associates[2]!.pendingAssignmentId === offerOf(b, visits[2]!).assignmentId, "Morgan's own offer is unaffected")
+
+  console.log('Reject UP')
+  const morganOffer = offerOf(b, visits[2]!).assignmentId
+  const rejected = await call('POST', `/api/assignments/${morganOffer}/reject`, { sessionId: sid })
+  check(rejected.status === 200 && rejected.body.status === 'Assigned', 'Morgan rejects V3; it is re-offered immediately')
+  b = await board()
+  const v3 = b.visits.find((v) => v.visitId === visits[2])!
+  const reoffer = b.assignments.find((a) => a.assignmentId === v3.assignmentId)!
+  check(reoffer.participantId === ids[1] && reoffer.assignmentId !== morganOffer, 'V3 goes to Jamie, the front eligible associate')
+  check(b.assignments.find((a) => a.assignmentId === morganOffer)!.completionReason === 'Rejected', 'the rejected offer stays in history as Rejected')
+  check((await call('POST', `/api/assignments/${morganOffer}/reject`, { sessionId: sid })).body.replayed === true, 'repeated reject is a replay')
+  check((await call('POST', `/api/assignments/${morganOffer}/accept`, { sessionId: sid })).body.code === 'INVALID_TRANSITION', 'a rejected offer cannot be accepted')
+  check((await call('POST', `/api/assignments/${offerOf(b, visits[1]!).assignmentId}/reject`, { sessionId: sid })).body.code === 'INVALID_TRANSITION', 'an accepted offer cannot be rejected')
 
   const last = await call('POST', '/api/demo/reset', { sessionId: sid })
   check(last.status === 200, 'final reset leaves a clean board')

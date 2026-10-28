@@ -14,8 +14,11 @@
  * 3 = per-associate confirmation gate: at most one pending offer per
  *     associate (several associates may hold one at once); the queue moves
  *     when an offer is created, not on acceptance. Same fields as version 2.
+ * 4 = Reject UP: POST /api/assignments/{id}/reject, completionReason
+ *     'Rejected', activity 'AssignmentRejected'; a visit may have several
+ *     rejected offers in assignments[] (at most one non-rejected).
  */
-export const CONTRACT_VERSION = 3
+export const CONTRACT_VERSION = 4
 
 /* ------------------------------------------------------------ enum values */
 
@@ -33,7 +36,7 @@ export type AvailabilityState = ParticipantState
 export const ASSIGNMENT_PHASES = ['PendingAcceptance', 'Accepted', 'Completed'] as const
 export type AssignmentPhase = (typeof ASSIGNMENT_PHASES)[number]
 
-export const COMPLETION_REASONS = ['OutcomeRecorded', 'Departure'] as const
+export const COMPLETION_REASONS = ['OutcomeRecorded', 'Departure', 'Rejected'] as const
 export type CompletionReason = (typeof COMPLETION_REASONS)[number]
 
 export const OUTCOMES = ['Sale', 'NoSale'] as const
@@ -61,6 +64,7 @@ export const ACTIVITY_KINDS = [
   'ArrivalRecorded',
   'AssignmentCreated',
   'AssignmentAccepted',
+  'AssignmentRejected',
   'TurnCompleted',
   'AvailabilityChanged',
   'VisitorAttributesUpdated',
@@ -132,6 +136,11 @@ export interface VisitView {
   outcomeRecordedAt: string | null
   /** 1-based FIFO rank among Waiting visitors still inside; otherwise null. */
   waitingPosition: number | null
+  /**
+   * The visit's current (non-rejected) assignment: pending, accepted or
+   * completed. Always null while Waiting, even if earlier offers were
+   * rejected (those remain visible in BoardSnapshot.assignments).
+   */
   assignmentId: string | null
 }
 
@@ -208,6 +217,11 @@ export interface AcceptanceRequest {
   sessionId: string
 }
 
+/** POST /api/assignments/{assignmentId}/reject */
+export interface RejectionRequest {
+  sessionId: string
+}
+
 /** POST /api/assignments/{assignmentId}/outcome */
 export interface OutcomeRequest {
   sessionId: string
@@ -255,6 +269,15 @@ export interface AcceptanceResult {
   sessionId: string
   assignmentId: string
   phase: AssignmentPhase
+  replayed: boolean
+}
+
+export interface RejectionResult {
+  sessionId: string
+  assignmentId: string
+  visitId: string
+  /** Visit status after the immediate re-dispatch: Waiting or Assigned (possibly to the same associate). */
+  status: VisitStatus
   replayed: boolean
 }
 
