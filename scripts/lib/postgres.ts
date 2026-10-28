@@ -45,7 +45,7 @@ export async function startCluster(options: {
     persistent: options.persistent,
     // UTC server so ad-hoc psql output matches API times; the API itself
     // formats times explicitly and does not depend on this.
-    postgresFlags: ['-c', 'timezone=UTC', '-c', 'max_connections=100'],
+    postgresFlags: ['-c', 'timezone=UTC', '-c', 'max_connections=100', '-c', 'io_method=sync'],
     onLog: () => {},
     onError: () => {},
   })
