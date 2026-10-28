@@ -3,11 +3,12 @@
  * commands, enforcing the exact Stage 1 bodies of Backend Requirements
  * section 6.
  */
-import { OUTCOMES } from '../contracts/index.js'
+import { AVAILABILITY_STATES, OUTCOMES } from '../contracts/index.js'
 import type {
   AcceptanceCommand,
   ArrivalCommand,
   AttributesCommand,
+  AvailabilityCommand,
   DepartureCommand,
   OutcomeCommand,
 } from '../store/workflowStore.js'
@@ -76,5 +77,15 @@ export function parseDeparture(body: JsonObject, params: Record<string, string>)
     sessionId: requiredUuid(body, 'sessionId'),
     visitId: uuid(params.visitId, 'visitId'),
     outcome: body.outcome === undefined || body.outcome === null ? null : oneOf(body.outcome, OUTCOMES, 'outcome'),
+  }
+}
+
+export function parseAvailability(body: JsonObject): AvailabilityCommand {
+  onlyKeys(body, ['sessionId', 'participantId', 'commandId', 'state'])
+  return {
+    sessionId: requiredUuid(body, 'sessionId'),
+    participantId: requiredUuid(body, 'participantId'),
+    commandId: requiredUuid(body, 'commandId'),
+    state: requiredOneOf(body, 'state', AVAILABILITY_STATES),
   }
 }

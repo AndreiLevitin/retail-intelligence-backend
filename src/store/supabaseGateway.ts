@@ -9,6 +9,7 @@ import {
   type AcceptanceResult,
   type ArrivalResult,
   type AttributesResult,
+  type AvailabilityResult,
   type BoardSnapshot,
   type DepartureResult,
   type DomainErrorCode,
@@ -20,6 +21,7 @@ import {
   type AcceptanceCommand,
   type ArrivalCommand,
   type AttributesCommand,
+  type AvailabilityCommand,
   type DepartureCommand,
   type OutcomeCommand,
   type WorkflowStore,
@@ -72,6 +74,15 @@ export class SupabaseGateway implements WorkflowStore {
       p_accessory_description: command.attributes.accessoryDescription,
       p_age_group: command.attributes.ageGroup,
       p_gender: command.attributes.gender,
+    })
+  }
+
+  setAvailability(command: AvailabilityCommand): Promise<AvailabilityResult> {
+    return this.invoke<AvailabilityResult>('upb_set_availability', {
+      p_session_id: command.sessionId,
+      p_participant_id: command.participantId,
+      p_command_id: command.commandId,
+      p_state: command.state,
     })
   }
 

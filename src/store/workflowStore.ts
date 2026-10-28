@@ -10,6 +10,8 @@ import type {
   AcceptanceResult,
   ArrivalResult,
   AttributesResult,
+  AvailabilityResult,
+  AvailabilityState,
   BoardSnapshot,
   DepartureResult,
   DomainErrorCode,
@@ -52,9 +54,17 @@ export interface DepartureCommand {
   outcome: Outcome | null
 }
 
+export interface AvailabilityCommand {
+  sessionId: string
+  participantId: string
+  commandId: string
+  state: AvailabilityState
+}
+
 export interface WorkflowStore {
   getBoard(): Promise<BoardSnapshot>
   registerArrival(command: ArrivalCommand): Promise<ArrivalResult>
+  setAvailability(command: AvailabilityCommand): Promise<AvailabilityResult>
   acceptAssignment(command: AcceptanceCommand): Promise<AcceptanceResult>
   recordOutcome(command: OutcomeCommand): Promise<OutcomeResult>
   updateVisitorAttributes(command: AttributesCommand): Promise<AttributesResult>
