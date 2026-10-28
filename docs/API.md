@@ -1,9 +1,25 @@
 # Digital UP Board API - Stage 1
 
+Contract version **2** (Advance on Acceptance) - see
+[CONTRACT_CHANGES.md](CONTRACT_CHANGES.md) for the breaking change from v1.
+
 Canonical types: [`src/contracts/dto.ts`](../src/contracts/dto.ts) and
 [`src/contracts/errors.ts`](../src/contracts/errors.ts) (dependency-free; the
-frontend may import or copy them). Source of the rules: `Backend
-Requirements.md` section 6 and `Prototype Design.md` (shared specs folder).
+frontend may copy them). Source of the rules: `Backend Requirements.md`
+section 6, `Assignment Rotation Revision.md` and `Prototype Design.md`.
+
+## Rotation model
+
+- Associate availability is `Available` or `OffFloor` only; accepted work never
+  makes an associate ineligible.
+- At most one **pending offer** exists per run: the oldest Waiting visitor
+  still inside is offered to the first Available associate. The associate's
+  queue position does not change. Later visitors wait ("Awaiting
+  confirmation") until the offer is resolved.
+- **Accept** moves the associate to the queue bottom exactly once and offers
+  the next oldest Waiting visitor.
+- Outcome and departure never change rotation. Departure of a pending offer
+  closes it without consuming the associate's turn and offers the next visitor.
 
 ## Conventions
 
@@ -14,7 +30,11 @@ Requirements.md` section 6 and `Prototype Design.md` (shared specs folder).
 - All IDs are UUID strings; all times are ISO 8601 UTC with milliseconds
   (`2026-10-27T18:02:11.123Z`); optional values are explicit `null`.
 - Every response (success or error) has `Cache-Control: no-store`.
-- Unsupported method -> `405` with an `Allow` header. Unknown path -> `404 NOT_FOUND`.
+- Unsupported method -> `405` with an `Allow` header (route methods + `OPTIONS`).
+  Unknown path -> `404 NOT_FOUND`.
+- Cross-origin browsers: only origins in `CORS_ALLOWED_ORIGINS` (exact match).
+  `OPTIONS` preflight needs no token; other origins get `403 ORIGIN_NOT_ALLOWED`.
+  CORS is not authentication: real requests still need the operator token.
 - Command results only acknowledge the operation. Refresh `GET /api/board`
   after every successful (or uncertain) command.
 - Retries: reuse the **same** `eventId` (arrivals) or `commandId`
@@ -30,6 +50,7 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
 | 400 | VALIDATION_ERROR | Malformed body/ID/enum, unsupported source, extra field |
 | 400 | OUTCOME_REQUIRED | Departure of a visit without a result and without `outcome` |
 | 401 | UNAUTHORIZED | Missing/invalid operator token |
+| 403 | ORIGIN_NOT_ALLOWED | Browser `Origin` not in the CORS allowlist |
 | 404 | NOT_FOUND | Target not in the current run (or unknown route) |
 | 405 | METHOD_NOT_ALLOWED | Method not supported by the route (`Allow` header) |
 | 409 | STALE_SESSION | `sessionId` is not the current run -> fetch the board |
@@ -48,11 +69,13 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
   "session": { "sessionId": "8b6f…", "startedAt": "2026-10-27T18:00:00.000Z" },
   "associates": [
     { "participantId": "c1…", "associateId": "a55c0000-0000-4000-8000-000000000001",
-      "displayName": "Alex", "state": "PendingAcceptance", "queuePosition": null,
-      "currentAssignmentId": "d4…", "assignedTurns": 1, "acceptedTurns": 0 },
+      "displayName": "Alex", "state": "Available", "queuePosition": 1,
+      "pendingAssignmentId": "d4…", "activeAssignmentIds": [], "activeTurns": 0,
+      "assignedTurns": 1, "acceptedTurns": 0 },
     { "participantId": "c2…", "associateId": "a55c0000-0000-4000-8000-000000000002",
-      "displayName": "Jamie", "state": "Available", "queuePosition": 1,
-      "currentAssignmentId": null, "assignedTurns": 0, "acceptedTurns": 0 }
+      "displayName": "Jamie", "state": "Available", "queuePosition": 2,
+      "pendingAssignmentId": null, "activeAssignmentIds": [], "activeTurns": 0,
+      "assignedTurns": 0, "acceptedTurns": 0 }
   ],
   "visits": [
     { "visitId": "v1…", "arrivedAt": "2026-10-27T18:02:11.123Z", "detectedAt": null,
@@ -70,7 +93,7 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
   "metrics": { "visitors": 1, "assignedTurns": 1, "acceptedTurns": 0, "closedSales": 0, "conversionRate": 0 },
   "activity": [
     { "activityId": "e2…", "occurredAt": "2026-10-27T18:02:11.123Z", "kind": "AssignmentCreated",
-      "description": "Visitor #1 assigned to Alex", "visitId": "v1…", "participantId": "c1…", "assignmentId": "d4…" },
+      "description": "Visitor #1 offered to Alex", "visitId": "v1…", "participantId": "c1…", "assignmentId": "d4…" },
     { "activityId": "e1…", "occurredAt": "2026-10-27T18:02:11.123Z", "kind": "ArrivalRecorded",
       "description": "Visitor #1 registered (manual entry)", "visitId": "v1…", "participantId": null, "assignmentId": null }
   ],
@@ -81,6 +104,10 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
 - `associates`: stable initial roster order; Next UP = `queuePosition === 1`.
 - `visits` / `assignments`: server registration order of the visit (FIFO).
 - `waitingPosition`: 1-based rank among Waiting visitors still inside.
+- Waiting reason (derived): a `PendingAcceptance` assignment exists ->
+  "Awaiting confirmation"; else no `Available` associate -> "No available associates".
+- `pendingAssignmentId`: the run's single pending offer, if it is this
+  associate's. `activeAssignmentIds` / `activeTurns`: accepted unfinished work.
 - Presence is derived: `departedAt === null` -> Inside, otherwise Left.
 - `activity`: newest first, at most 100; metrics cover the whole run.
 - `conversionRate`: `closedSales / visitors * 100` (0 for no visits), unrounded.
@@ -111,17 +138,20 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
 
 `{ "sessionId": "8b6f…", "participantId": "c2…", "replayed": false }`
 
-Only idle (Available/OffFloor) participants; busy -> 409 INVALID_TRANSITION.
-Same state = no-op. Returning Available appends to the queue bottom and
-dispatches Waiting visitors. A replay returns the saved acknowledgement and
-never reapplies.
+`OffFloor` is rejected (409 INVALID_TRANSITION) only for the associate who owns
+the pending offer - resolve it first. Accepted unfinished work does not block
+it and is kept. Same state = no-op. Returning Available appends to the queue
+bottom and creates an offer if none is pending. A replay returns the saved
+acknowledgement and never reapplies.
 
 ### POST /api/assignments/{assignmentId}/accept -> 200 AcceptanceResult
 
 `{ "sessionId": "8b6f…" }` -> `{ "sessionId": "…", "assignmentId": "d4…", "phase": "Accepted", "replayed": false }`
 
-Already accepted -> `replayed: true` with current phase (may be `Completed`).
-Closed by departure before acceptance -> 409 INVALID_TRANSITION.
+Moves the associate to the queue bottom exactly once (they stay Available),
+then offers the oldest Waiting visitor. Already accepted -> `replayed: true`
+with current phase (may be `Completed`), no movement. Closed by departure
+before acceptance -> 409 INVALID_TRANSITION.
 
 ### POST /api/assignments/{assignmentId}/outcome -> 200 OutcomeResult
 
@@ -129,9 +159,9 @@ Closed by departure before acceptance -> 409 INVALID_TRANSITION.
 `{ "sessionId": "…", "visitId": "v1…", "assignmentId": "d4…", "outcome": "Sale", "replayed": false }`
 
 Requires an accepted, unfinished turn (else 409 INVALID_TRANSITION). Stores the
-result on the Visit (status Completed, visitor remains inside), completes the
-assignment (OutcomeRecorded), releases the associate to the queue bottom and
-dispatches. Same result again -> replay; different -> 409 OUTCOME_CONFLICT.
+result on the Visit (status Completed, visitor remains inside) and completes
+the assignment (OutcomeRecorded). Rotation and availability are unchanged.
+Same result again -> replay; different -> 409 OUTCOME_CONFLICT.
 A turn closed by departure -> 409 INVALID_TRANSITION.
 
 ### PATCH /api/visits/{visitId}/attributes -> 200 AttributesResult
@@ -154,10 +184,12 @@ queue. Allowed after departure. Unchanged profile -> no activity entry.
 
 - Visit without result: `outcome` required (else 400 OUTCOME_REQUIRED).
 - Visit with result: omitted/matching `outcome` accepted; different -> 409 OUTCOME_CONFLICT.
-- Waiting: no assignment is created. Pending/Accepted: the assignment closes
-  with `completionReason: "Departure"` (acceptance never fabricated), the
-  associate is released once and Waiting visitors are dispatched.
-  Completed service: the associate is not touched.
+- Waiting: no assignment is created.
+- Pending offer: closes with `completionReason: "Departure"`, no acceptance;
+  the associate keeps their queue position (turn not consumed) and the next
+  oldest Waiting visitor is offered.
+- Accepted: closes with `completionReason: "Departure"`, `acceptedAt` kept;
+  rotation unchanged. Completed service: nothing but the exit is recorded.
 - Repeated exit -> `replayed: true` with the original `departedAt`.
 
 ### POST /api/demo/reset -> 200 ResetResult

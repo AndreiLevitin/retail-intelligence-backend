@@ -12,6 +12,8 @@ import { SupabaseGateway } from '../../src/store/supabaseGateway.js'
 import type { TestDatabase } from './testDatabase.js'
 
 export const OPERATOR_TOKEN = 'test-operator-token'
+/** Frontend origin configured in the test CORS allowlist. */
+export const FRONTEND_ORIGIN = 'http://localhost:5173'
 
 export interface ApiResponse<T = any> {
   status: number
@@ -24,7 +26,7 @@ export interface TestApi {
     method: string,
     path: string,
     body?: unknown,
-    options?: { token?: string | null; contentType?: string; rawBody?: string },
+    options?: { token?: string | null; contentType?: string; rawBody?: string; origin?: string },
   ): Promise<ApiResponse<T>>
   board(): Promise<BoardSnapshot>
   /** Registers a manual arrival with a fresh eventId (or the given one). */
@@ -46,7 +48,7 @@ export function attributes(overrides: Partial<VisitorAttributes> = {}): VisitorA
 
 export function createTestApi(db: TestDatabase, options: { poolSize?: number } = {}): TestApi {
   const rpc = new PgRpcClient(db.backendUrl, { max: options.poolSize ?? 10 })
-  const deps = { operatorToken: OPERATOR_TOKEN, store: new SupabaseGateway(rpc) }
+  const deps = { operatorToken: OPERATOR_TOKEN, allowedOrigins: [FRONTEND_ORIGIN], store: new SupabaseGateway(rpc) }
 
   const api: TestApi = {
     rpc,
@@ -54,6 +56,7 @@ export function createTestApi(db: TestDatabase, options: { poolSize?: number } =
       const headers = new Headers()
       const token = opts.token === undefined ? OPERATOR_TOKEN : opts.token
       if (token !== null) headers.set('authorization', `Bearer ${token}`)
+      if (opts.origin !== undefined) headers.set('origin', opts.origin)
       let payload: string | undefined
       if (opts.rawBody !== undefined || body !== undefined) {
         headers.set('content-type', opts.contentType ?? 'application/json')

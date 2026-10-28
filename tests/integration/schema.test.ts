@@ -76,27 +76,37 @@ describe('seeded setup', () => {
 })
 
 describe('integrity constraints', () => {
-  it('allows at most one unfinished assignment per participant', async () => {
+  it('allows one pending offer per run but several accepted unfinished assignments per participant', async () => {
     const sessionId = await currentSessionId(db)
-    const [alex] = await participants(sessionId)
+    const [alex, jamie] = await participants(sessionId)
     await inRollback(async (client) => {
       const visits = await client.query<{ id: string }>(
         `insert into public.visits (${VISIT_COLUMNS})
-         select $1, gen_random_uuid(), now(), 'Manual', 'Assigned', '', '', null, 'Unknown', 'Unknown', 'Manual', 'NotRequested'
-         from generate_series(1, 2) returning id`,
+         select $1, gen_random_uuid(), now(), 'Manual', 'Accepted', '', '', null, 'Unknown', 'Unknown', 'Manual', 'NotRequested'
+         from generate_series(1, 4) returning id`,
         [sessionId],
       )
-      await client.query(
-        `insert into public.assignments (session_id, visit_id, participant_id, assigned_at) values ($1, $2, $3, now())`,
-        [sessionId, visits.rows[0]!.id, alex!.id],
+      const insert = `insert into public.assignments (session_id, visit_id, participant_id, assigned_at, accepted_at)
+                      values ($1, $2, $3, now(), $4)`
+      // Two accepted unfinished assignments for Alex are valid.
+      await client.query(insert, [sessionId, visits.rows[0]!.id, alex!.id, new Date(Date.now() + 1000)])
+      await client.query(insert, [sessionId, visits.rows[1]!.id, alex!.id, new Date(Date.now() + 1000)])
+      // One pending offer is valid; a second one in the same run is not, whoever owns it.
+      await client.query(insert, [sessionId, visits.rows[2]!.id, alex!.id, null])
+      await expect(client.query(insert, [sessionId, visits.rows[3]!.id, jamie!.id, null])).rejects.toThrow(
+        /assignments_one_pending_offer_per_session/,
       )
-      await expect(
-        client.query(
-          `insert into public.assignments (session_id, visit_id, participant_id, assigned_at) values ($1, $2, $3, now())`,
-          [sessionId, visits.rows[1]!.id, alex!.id],
-        ),
-      ).rejects.toThrow(/assignments_one_unfinished_per_participant/)
     })
+  })
+
+  it('limits associate availability to Available and OffFloor', async () => {
+    const sessionId = await currentSessionId(db)
+    const [alex] = await participants(sessionId)
+    await expectRejected(
+      `update public.associate_sessions set state = 'OnUP', queue_order = null where id = $1`,
+      [alex!.id],
+      /associate_sessions_state_check/,
+    )
   })
 
   it('rejects links between records of different sessions', async () => {

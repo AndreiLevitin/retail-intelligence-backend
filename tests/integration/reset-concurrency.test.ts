@@ -32,14 +32,16 @@ const reset = (sid: string) => api.request('POST', '/api/demo/reset', { sessionI
 async function busyRun() {
   await api.arrive(sessionId)
   await api.arrive(sessionId)
-  const board = await api.board()
-  const [first, second] = board.assignments
+  const [first] = (await api.board()).assignments
+  // Accepting the first offer creates the second one.
   await api.request('POST', `/api/assignments/${first!.assignmentId}/accept`, { sessionId })
   await api.request('POST', `/api/assignments/${first!.assignmentId}/outcome`, { sessionId, outcome: 'Sale' })
+  const board = await api.board()
+  const second = board.assignments[1]!
   await api.request('POST', '/api/availability', {
     sessionId, participantId: board.associates[2]!.participantId, commandId: randomUUID(), state: 'OffFloor',
   })
-  return { board: await api.board(), pendingAssignmentId: second!.assignmentId, visitId: second!.visitId }
+  return { board: await api.board(), pendingAssignmentId: second.assignmentId, visitId: second.visitId }
 }
 
 describe('POST /api/demo/reset', () => {
@@ -180,7 +182,7 @@ describe('POST /api/demo/reset', () => {
 describe('database availability', () => {
   it('maps an unreachable database to 503 DATABASE_UNAVAILABLE without leaking details', async () => {
     const rpc = new PgRpcClient('postgres://upb_backend:x@127.0.0.1:1/none', { max: 1 })
-    const deps = { operatorToken: OPERATOR_TOKEN, store: new SupabaseGateway(rpc) }
+    const deps = { operatorToken: OPERATOR_TOKEN, allowedOrigins: [], store: new SupabaseGateway(rpc) }
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const response = await routeRequest(

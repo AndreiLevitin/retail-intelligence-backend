@@ -3,19 +3,31 @@
  *
  * Dependency-free on purpose: the React frontend may import (or copy) this
  * module without pulling in database or server code. Field names and machine
- * values follow "Prototype Design.md" (Public DTOs and state values) and
- * "Backend Requirements.md" section 6. All times are ISO 8601 UTC strings,
- * all IDs are opaque UUID strings, optional values are explicit null.
+ * values follow "Prototype Design.md" (Public DTOs and state values),
+ * "Backend Requirements.md" section 6 and "Assignment Rotation Revision.md".
+ * All times are ISO 8601 UTC strings, all IDs are opaque UUID strings,
+ * optional values are explicit null.
  */
+
+/**
+ * Contract version; see docs/CONTRACT_CHANGES.md.
+ * 2 = Advance on Acceptance (associate availability only Available/OffFloor,
+ * one pending offer per run, pendingAssignmentId/activeAssignmentIds/activeTurns).
+ */
+export const CONTRACT_VERSION = 2
 
 /* ------------------------------------------------------------ enum values */
 
-export const PARTICIPANT_STATES = ['Available', 'OffFloor', 'PendingAcceptance', 'OnUP'] as const
+/**
+ * Associate availability. Assignment work (pending offer, accepted turns) is
+ * reported separately and never changes availability.
+ */
+export const PARTICIPANT_STATES = ['Available', 'OffFloor'] as const
 export type ParticipantState = (typeof PARTICIPANT_STATES)[number]
 
-/** States an operator may request for an idle participant. */
-export const AVAILABILITY_STATES = ['Available', 'OffFloor'] as const
-export type AvailabilityState = (typeof AVAILABILITY_STATES)[number]
+/** States an operator may request (same values as ParticipantState). */
+export const AVAILABILITY_STATES = PARTICIPANT_STATES
+export type AvailabilityState = ParticipantState
 
 export const ASSIGNMENT_PHASES = ['PendingAcceptance', 'Accepted', 'Completed'] as const
 export type AssignmentPhase = (typeof ASSIGNMENT_PHASES)[number]
@@ -72,8 +84,13 @@ export interface AssociateView {
   state: ParticipantState
   /** 1-based rank among Available participants; null unless Available. */
   queuePosition: number | null
-  /** Unfinished assignment of this participant; null when idle. */
-  currentAssignmentId: string | null
+  /** The run's single unresolved offer, when it is offered to this participant. */
+  pendingAssignmentId: string | null
+  /** Accepted, unfinished assignments (any number), in visit registration order. */
+  activeAssignmentIds: string[]
+  /** activeAssignmentIds.length */
+  activeTurns: number
+  /** All offers created for this participant, including ones closed by early departure. */
   assignedTurns: number
   acceptedTurns: number
 }

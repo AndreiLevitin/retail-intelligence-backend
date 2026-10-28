@@ -13,7 +13,11 @@ let cached: Dependencies | null = null
 export function environmentDependencies(): Dependencies {
   if (!cached) {
     const config = loadConfig()
-    cached = { operatorToken: config.operatorToken, store: createWorkflowStore(config.database) }
+    cached = {
+      operatorToken: config.operatorToken,
+      allowedOrigins: config.allowedOrigins,
+      store: createWorkflowStore(config.database),
+    }
   }
   return cached
 }

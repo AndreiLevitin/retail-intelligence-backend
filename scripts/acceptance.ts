@@ -11,7 +11,9 @@
  * Scenario (Session Handoffs "Manual end-to-end integration"): open board ->
  * add visitor -> Accept -> Sale -> mark exit -> mark associates Off Floor ->
  * add Waiting visitor -> exit without assignment -> restore capacity ->
- * exit after the associate started another turn -> replays/stale -> reset.
+ * exit after the associate started another turn -> replays/stale -> reset ->
+ * Advance on Acceptance regression (A -> B -> C -> A, confirmation gate,
+ * pending-offer departure) -> reset.
  */
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -97,7 +99,8 @@ async function main(): Promise<void> {
   check((await call('POST', `/api/assignments/${a1}/outcome`, { sessionId: sid, outcome: 'NoSale' })).body.code === 'OUTCOME_CONFLICT', 'conflicting outcome rejected')
   b = await board()
   check(b.visits[0]!.outcome === 'Sale' && b.visits[0]!.departedAt === null, 'Sale stored on Visit; visitor still inside')
-  check(b.associates[0]!.queuePosition === 3, 'Alex returned to the bottom of the rotation')
+  check(b.associates[0]!.queuePosition === 3, 'Alex moved to the bottom once, on acceptance')
+  check(b.associates.every((a) => a.state === 'Available'), 'availability unchanged by accepted work')
   check(b.metrics.closedSales === 1 && b.metrics.conversionRate === 100, 'metrics: 1 sale / 1 visit = 100%')
 
   console.log('US-04 exit after completed service')
@@ -149,6 +152,37 @@ async function main(): Promise<void> {
   sid = reset.body.sessionId
   b = await board()
   check(b.visits.length === 0 && b.metrics.visitors === 0 && b.associates.map((a) => a.queuePosition).join() === '1,2,3', 'fresh board with initial roster order')
+
+  console.log('Advance on Acceptance rotation')
+  const ids = b.associates.map((a) => a.participantId)
+  const visits: string[] = []
+  for (let i = 0; i < 4; i++) {
+    const r = await call('POST', '/api/arrivals', { sessionId: sid, eventId: randomUUID(), source: 'Manual', attributes: attributes(`R${i + 1}`) })
+    visits.push(r.body.visitId)
+  }
+  b = await board()
+  check(b.assignments.length === 1 && b.visits.filter((v) => v.status === 'Waiting').length === 3, 'one pending offer gates later arrivals')
+  check(b.associates.map((a) => a.queuePosition).join() === '1,2,3', 'offer creation keeps the queue')
+  const offerOf = (snapshot: BoardSnapshot, visitId: string) => snapshot.assignments.find((a) => a.visitId === visitId)!
+  for (let i = 0; i < 3; i++) {
+    const offer = offerOf(b, visits[i]!)
+    check(offer.participantId === ids[i], `V${i + 1} offered to ${b.associates[i]!.displayName}`)
+    await call('POST', `/api/assignments/${offer.assignmentId}/accept`, { sessionId: sid })
+    b = await board()
+  }
+  const fourth = offerOf(b, visits[3]!)
+  check(fourth.participantId === ids[0], 'V4 offered to Alex while V1 is still unfinished')
+  check(b.associates[0]!.activeTurns === 1 && b.associates[0]!.pendingAssignmentId === fourth.assignmentId, 'Alex shows one active turn and the pending offer')
+  check((await call('POST', '/api/availability', { sessionId: sid, participantId: ids[0], commandId: randomUUID(), state: 'OffFloor' })).body.code === 'INVALID_TRANSITION', 'offer owner cannot go Off Floor')
+  const order = b.associates.map((a) => a.queuePosition).join()
+  await call('POST', `/api/assignments/${offerOf(b, visits[0]!).assignmentId}/outcome`, { sessionId: sid, outcome: 'Sale' })
+  check((await board()).associates.map((a) => a.queuePosition).join() === order, 'Sale on V1 does not change queue order')
+  await call('POST', `/api/visits/${visits[3]}/departure`, { sessionId: sid, outcome: 'NoSale' })
+  b = await board()
+  check(b.associates.map((a) => a.queuePosition).join() === order && b.associates[0]!.pendingAssignmentId === null, 'pending V4 departure clears the gate without consuming Alex\'s turn')
+
+  const last = await call('POST', '/api/demo/reset', { sessionId: sid })
+  check(last.status === 200, 'final reset leaves a clean board')
 
   console.log(`\nAll ${step} acceptance checks passed.`)
 }

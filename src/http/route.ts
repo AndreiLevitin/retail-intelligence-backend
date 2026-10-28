@@ -1,13 +1,15 @@
 /**
  * Route pipeline shared by the Vercel Functions and the local dev server:
- * method check (405 + Allow) -> path parameters -> configuration -> operator
- * token (401, before any store call) -> handler -> error mapping. Responses
- * never contain SQL details, stack traces or secrets.
+ * configuration -> CORS origin check (403 for unapproved origins) -> OPTIONS
+ * preflight (no token) -> method check (405 + Allow) -> operator token (401,
+ * before any store call) -> handler -> error mapping. Responses never
+ * contain SQL details, stack traces or secrets.
  */
 import { ERROR_HTTP_STATUS } from '../contracts/index.js'
 import { ConfigError } from '../config.js'
 import { StoreError, type WorkflowStore } from '../store/index.js'
 import { requireOperator } from './auth.js'
+import { decideOrigin, preflightResponse, rejectedOriginResponse, withCorsHeaders, type OriginDecision } from './cors.js'
 import { errorResponse, HttpError } from './responses.js'
 
 export const HTTP_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] as const
@@ -15,6 +17,8 @@ export type HttpMethod = (typeof HTTP_METHODS)[number]
 
 export interface Dependencies {
   operatorToken: string
+  /** Exact browser origins allowed to call the API cross-origin. */
+  allowedOrigins: readonly string[]
   store: WorkflowStore
 }
 
@@ -56,29 +60,47 @@ export function matchPath(template: string, pathname: string): Record<string, st
   return params
 }
 
+/** Methods of the route plus OPTIONS (preflight is answered for every route). */
 export function allowHeader(route: RouteDefinition): string {
-  return HTTP_METHODS.filter((method) => route.methods[method]).join(', ')
+  return [...HTTP_METHODS.filter((method) => method !== 'OPTIONS' && route.methods[method]), 'OPTIONS'].join(', ')
+}
+
+async function dispatchRoute(
+  route: RouteDefinition | null,
+  request: Request,
+  operatorToken: string,
+  store: WorkflowStore,
+): Promise<Response> {
+  if (!route) return errorResponse('NOT_FOUND', 'Route not found.')
+  const params = matchPath(route.path, new URL(request.url).pathname)
+  if (!params) return errorResponse('NOT_FOUND', 'Route not found.')
+
+  const method = request.method.toUpperCase() as HttpMethod
+  if (method === 'OPTIONS') return preflightResponse(allowHeader(route))
+  const handler = route.methods[method]
+  if (!handler) {
+    return errorResponse('METHOD_NOT_ALLOWED', 'Method not allowed.', { allow: allowHeader(route) })
+  }
+  requireOperator(request, operatorToken)
+  return handler({ request, params, store })
 }
 
 export async function handleRoute(
-  route: RouteDefinition,
+  route: RouteDefinition | null,
   request: Request,
   dependencies: DependencyProvider,
 ): Promise<Response> {
+  let origin: OriginDecision = { kind: 'none' }
+  let response: Response
   try {
-    const handler = route.methods[request.method.toUpperCase() as HttpMethod]
-    if (!handler) {
-      return errorResponse('METHOD_NOT_ALLOWED', 'Method not allowed.', { allow: allowHeader(route) })
-    }
-    const params = matchPath(route.path, new URL(request.url).pathname)
-    if (!params) return errorResponse('NOT_FOUND', 'Route not found.')
-
-    const { operatorToken, store } = dependencies()
-    requireOperator(request, operatorToken)
-    return await handler({ request, params, store })
+    const { operatorToken, allowedOrigins, store } = dependencies()
+    origin = decideOrigin(request, allowedOrigins)
+    if (origin.kind === 'rejected') return rejectedOriginResponse()
+    response = await dispatchRoute(route, request, operatorToken, store)
   } catch (error) {
-    return toErrorResponse(error, route.path)
+    response = toErrorResponse(error, route?.path ?? 'unknown')
   }
+  return withCorsHeaders(response, origin)
 }
 
 /** Dispatches over a route table; unknown paths get a JSON 404. */
@@ -89,7 +111,7 @@ export async function routeRequest(
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname
   const route = table.find((candidate) => matchPath(candidate.path, pathname) !== null)
-  return route ? handleRoute(route, request, dependencies) : errorResponse('NOT_FOUND', 'Route not found.')
+  return handleRoute(route ?? null, request, dependencies)
 }
 
 function toErrorResponse(error: unknown, path: string): Response {

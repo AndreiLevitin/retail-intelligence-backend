@@ -28,6 +28,9 @@ Supabase PostgreSQL
 - Every mutation locks the single `demo_control` row, then checks `sessionId`,
   so writes (including reset) are serialized and stale runs are rejected.
 - The board is one `STABLE` SQL statement: always one committed run.
+- Rotation (contract v2, "Advance on Acceptance"): one pending offer per run;
+  acceptance moves the associate to the queue bottom and offers the next
+  visitor; outcome/exit never rotate. See `docs/CONTRACT_CHANGES.md`.
 - Purchase result lives only on `visits.outcome`; assignments store
   milestones and `completion_reason` (OutcomeRecorded | Departure).
 - Tables: RLS enabled, no access for `anon`/`authenticated`; functions
@@ -45,6 +48,7 @@ Supabase PostgreSQL
 | `scripts/` | Local PostgreSQL, local dev server, acceptance run |
 | `tests/` | Integration tests (real PostgreSQL) and transport unit tests |
 | `docs/API.md`, `docs/api.http` | Request/response contract and examples |
+| `docs/CONTRACT_CHANGES.md` | Versioned breaking-change notes for the frontend |
 
 ## Requirements
 
@@ -65,6 +69,7 @@ server-side only; never expose them to the browser bundle.
 |---|---|
 | `DEMO_OPERATOR_TOKEN` | Shared operator token expected as `Authorization: Bearer <token>` |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase project used by the gateway (deployment) |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated exact frontend origins allowed from a browser (e.g. `http://localhost:5173`) |
 | `DATABASE_URL` | Optional, local/test only: direct PostgreSQL; takes precedence over Supabase |
 | `PORT` | Optional port of the local dev server (default 3000) |
 
@@ -80,11 +85,13 @@ npm run db:local
 # 2. API on http://localhost:3000 (same route code as the Vercel Functions)
 #    with DATABASE_URL and DEMO_OPERATOR_TOKEN in .env.local, or inline:
 DATABASE_URL=postgres://upb_backend:upb_backend_local@127.0.0.1:54322/upboard \
-DEMO_OPERATOR_TOKEN=local-dev-token npm run dev
+DEMO_OPERATOR_TOKEN=local-dev-token \
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5181 npm run dev
 ```
 
-The frontend Vite proxy forwards `/api` to `http://localhost:3000`
-(`VITE_API_PROXY_TARGET`). Enter the same operator token in the board UI.
+The frontend is a separate project calling `API_BASE_URL`
+(`http://localhost:3000` locally); its origin must be listed in
+`CORS_ALLOWED_ORIGINS`. Enter the same operator token in the board UI.
 
 Scripted end-to-end check over real HTTP (**resets the demo**):
 
@@ -106,7 +113,9 @@ psql "$SUPABASE_DB_URL" -f supabase/seed.sql   # optional, idempotent
 
 Migration `20261027000300_roster_setup.sql` already creates the roster (Alex,
 Jamie, Morgan with fixed IDs) and the first run, so a pushed database is
-ready. Running setup again never erases an active demo; `POST /api/demo/reset`
+ready. Migration `20261027000900_advance_on_acceptance.sql` converts data from
+the earlier rotation model and stops with a report if a run has several
+pending offers (reconcile them first). Running setup again never erases an active demo; `POST /api/demo/reset`
 is the only destructive operation. For `supabase db reset` locally, `seed.sql`
 runs automatically. Set the three server variables in Vercel project
 settings; leave `DATABASE_URL` unset there.
@@ -146,7 +155,12 @@ curl commands, and [docs/api.http](docs/api.http) for an HTTP-client file.
 Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
 
 - `npm run typecheck`: passes.
-- `npm test`: 59 tests (55 integration + 4 unit), repeated runs stable.
+- `npm test`: 70 tests (61 integration + 9 unit), repeated runs stable.
+  Includes the Advance-on-Acceptance A/B/C/A regression, confirmation gate,
+  several accepted turns per associate, pending-offer departure, offer-owner
+  Off Floor rejection, the data migration (stop on multiple pending offers,
+  conversion after reconciliation) and CORS (unit, store stubbed to prove
+  preflight/rejection never reach it).
   Covers seed determinism and idempotent setup; constraints and grants;
   manual arrival, assignment, accept and outcome; 12 simultaneous distinct
   arrivals; concurrent same-eventId retries; changed-payload conflict;
@@ -158,7 +172,9 @@ Verified locally (PostgreSQL 18.4 via embedded-postgres, Windows 11, Node 24):
   returns; reset atomicity, injected mid-reset failure rollback, concurrent
   resets, in-flight stale commands; snapshot consistency during resets;
   503 mapping for an unreachable database.
-- `npm run acceptance` against `npm run dev` + `npm run db:local`: 32/32 checks.
+- `npm run acceptance` against `npm run dev` + `npm run db:local`: 44/44 checks.
+- Migration 0900 applied to the live local database with v1 data
+  (9 visits, 2 OnUP, 1 pending offer) without data loss.
 
 Not verified (no environment or authorization available in this session):
 
@@ -172,7 +188,10 @@ Not verified (no environment or authorization available in this session):
 - Vercel runtime packaging, routing of `api/**/[id]/*.ts` and named-method
   exports (`vercel dev` / deployment not run). The local dev server uses the
   same route definitions but its own Node HTTP adapter. On Vercel, unknown
-  `/api/*` paths get the platform 404, not the JSON body.
+  `/api/*` paths get the platform 404, not the JSON body, and preflight for
+  them has no CORS headers.
+- Cross-origin calls from a real browser (CORS verified with curl and unit
+  tests only).
 - Real browser integration with the frontend.
 
 ## Implementation decisions to note
@@ -182,7 +201,10 @@ Not verified (no environment or authorization available in this session):
   exit, even if the result matches. The spec states this explicitly only for
   pending assignments. Applying it to accepted ones follows "new normal
   completion requires ... no departure/result".
-- `405` responses use the error body code `METHOD_NOT_ALLOWED` (the spec
-  defines only the status and the `Allow` header).
+- `405` responses use the error body code `METHOD_NOT_ALLOWED`, and rejected
+  browser origins use `403 ORIGIN_NOT_ALLOWED` (the spec defines neither code).
+- The data migration puts associates that were PendingAcceptance/OnUP under
+  v1 at the queue bottom in roster order (the spec does not prescribe an
+  order).
 - Activity descriptions use per-run ordinals ("Visitor #3"), never raw
   order tokens.

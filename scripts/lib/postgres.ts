@@ -130,9 +130,15 @@ export async function databaseExists(port: number, database: string): Promise<bo
   })
 }
 
-/** Applies pending migrations (each in its own transaction), then the seed. */
-export async function migrate(port: number, database: string): Promise<string[]> {
-  const files = (await readdir(MIGRATIONS_DIR)).filter((name) => name.endsWith('.sql')).sort()
+/**
+ * Applies pending migrations (each in its own transaction), then the seed.
+ * `through` stops after the named migration (used to test data migrations).
+ */
+export async function migrate(port: number, database: string, options: { through?: string } = {}): Promise<string[]> {
+  const all = (await readdir(MIGRATIONS_DIR)).filter((name) => name.endsWith('.sql')).sort()
+  const stop = options.through === undefined ? all.length : all.indexOf(options.through) + 1
+  if (stop === 0) throw new Error(`Unknown migration ${options.through}`)
+  const files = all.slice(0, stop)
   const applied: string[] = []
   await withClient(adminUrl(port, database), async (client) => {
     await client.query(`

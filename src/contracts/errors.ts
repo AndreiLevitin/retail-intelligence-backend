@@ -7,6 +7,8 @@ export const ERROR_HTTP_STATUS = {
   VALIDATION_ERROR: 400,
   OUTCOME_REQUIRED: 400,
   UNAUTHORIZED: 401,
+  /** Browser request from an origin outside the configured CORS allowlist. */
+  ORIGIN_NOT_ALLOWED: 403,
   NOT_FOUND: 404,
   METHOD_NOT_ALLOWED: 405,
   STALE_SESSION: 409,
