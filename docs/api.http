@@ -1,0 +1,85 @@
+### Digital UP Board API - local requests (VS Code REST Client / JetBrains HTTP client)
+### Fill in sessionId / ids from GET /api/board. Use new UUIDs for new intents only.
+
+@api = http://localhost:3000
+@token = local-dev-token
+@sessionId = 00000000-0000-4000-8000-000000000000
+@assignmentId = 00000000-0000-4000-8000-000000000000
+@visitId = 00000000-0000-4000-8000-000000000000
+@participantId = 00000000-0000-4000-8000-000000000000
+
+### Board
+GET {{api}}/api/board
+Authorization: Bearer {{token}}
+
+### Manual arrival
+POST {{api}}/api/arrivals
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "sessionId": "{{sessionId}}",
+  "eventId": "{{$guid}}",
+  "source": "Manual",
+  "detectedAt": null,
+  "attributes": {
+    "upperDescription": "Red coat",
+    "lowerDescription": "Jeans",
+    "accessoryDescription": null,
+    "ageGroup": "From20To39",
+    "gender": "Unknown"
+  }
+}
+
+### Availability
+POST {{api}}/api/availability
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "sessionId": "{{sessionId}}", "participantId": "{{participantId}}", "commandId": "{{$guid}}", "state": "OffFloor" }
+
+### Accept
+POST {{api}}/api/assignments/{{assignmentId}}/accept
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "sessionId": "{{sessionId}}" }
+
+### Outcome
+POST {{api}}/api/assignments/{{assignmentId}}/outcome
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "sessionId": "{{sessionId}}", "outcome": "Sale" }
+
+### Profile correction
+PATCH {{api}}/api/visits/{{visitId}}/attributes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "sessionId": "{{sessionId}}",
+  "source": "Manual",
+  "enrichmentStatus": "NotRequested",
+  "attributes": {
+    "upperDescription": "Green coat",
+    "lowerDescription": "Jeans",
+    "accessoryDescription": "Backpack",
+    "ageGroup": "Age60Plus",
+    "gender": "Female"
+  }
+}
+
+### Departure (outcome optional when already recorded)
+POST {{api}}/api/visits/{{visitId}}/departure
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "sessionId": "{{sessionId}}", "outcome": "NoSale" }
+
+### Reset demo
+POST {{api}}/api/demo/reset
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "sessionId": "{{sessionId}}" }

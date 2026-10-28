@@ -12,10 +12,11 @@ const TRANSIENT_HTTP_STATUS = new Set([0, 408, 502, 503, 504])
 export class SupabaseRpcClient implements RpcClient {
   private readonly client: SupabaseClient
 
-  constructor(url: string, serviceRoleKey: string) {
+  constructor(url: string, serviceRoleKey: string, options: { fetch?: typeof fetch } = {}) {
     this.client = createClient(url, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       db: { schema: 'public' },
+      ...(options.fetch ? { global: { fetch: options.fetch } } : {}),
     })
   }
 
