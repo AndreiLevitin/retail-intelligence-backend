@@ -11,6 +11,7 @@ import type {
   AvailabilityCommand,
   DepartureCommand,
   OutcomeCommand,
+  ResetCommand,
 } from '../store/workflowStore.js'
 import { HttpError } from './responses.js'
 import { oneOf, onlyKeys, requiredOneOf, requiredUuid, uuid, visitorAttributes, type JsonObject } from './validation.js'
@@ -88,4 +89,9 @@ export function parseAvailability(body: JsonObject): AvailabilityCommand {
     commandId: requiredUuid(body, 'commandId'),
     state: requiredOneOf(body, 'state', AVAILABILITY_STATES),
   }
+}
+
+export function parseReset(body: JsonObject): ResetCommand {
+  onlyKeys(body, ['sessionId'])
+  return { sessionId: requiredUuid(body, 'sessionId') }
 }

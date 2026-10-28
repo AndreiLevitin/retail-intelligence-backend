@@ -9,6 +9,7 @@ import {
   parseAvailability,
   parseDeparture,
   parseOutcome,
+  parseReset,
 } from './commands.js'
 import { jsonResponse } from './responses.js'
 import type { RouteDefinition } from './route.js'
@@ -82,6 +83,16 @@ export const departureRoute: RouteDefinition = {
   },
 }
 
+export const resetRoute: RouteDefinition = {
+  path: '/api/demo/reset',
+  methods: {
+    POST: async ({ request, store }) => {
+      const command = parseReset(await readJsonObject(request))
+      return jsonResponse(200, await store.resetDemo(command))
+    },
+  },
+}
+
 export const routes: readonly RouteDefinition[] = [
   boardRoute,
   arrivalsRoute,
@@ -90,4 +101,5 @@ export const routes: readonly RouteDefinition[] = [
   outcomeRoute,
   attributesRoute,
   departureRoute,
+  resetRoute,
 ]

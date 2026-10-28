@@ -14,6 +14,7 @@ import {
   type DepartureResult,
   type DomainErrorCode,
   type OutcomeResult,
+  type ResetResult,
 } from '../contracts/index.js'
 import { RpcError, type RpcClient } from './rpc.js'
 import {
@@ -24,6 +25,7 @@ import {
   type AvailabilityCommand,
   type DepartureCommand,
   type OutcomeCommand,
+  type ResetCommand,
   type WorkflowStore,
 } from './workflowStore.js'
 
@@ -121,6 +123,10 @@ export class SupabaseGateway implements WorkflowStore {
       p_visit_id: command.visitId,
       p_outcome: command.outcome,
     })
+  }
+
+  resetDemo(command: ResetCommand): Promise<ResetResult> {
+    return this.invoke<ResetResult>('upb_reset_demo', { p_session_id: command.sessionId })
   }
 
   private async invoke<T>(fn: string, args: Record<string, unknown>): Promise<T> {

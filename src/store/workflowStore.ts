@@ -17,6 +17,7 @@ import type {
   DomainErrorCode,
   Outcome,
   OutcomeResult,
+  ResetResult,
   VisitorAttributes,
 } from '../contracts/index.js'
 
@@ -61,6 +62,11 @@ export interface AvailabilityCommand {
   state: AvailabilityState
 }
 
+export interface ResetCommand {
+  /** The run the operator intends to reset; a stale one is rejected. */
+  sessionId: string
+}
+
 export interface WorkflowStore {
   getBoard(): Promise<BoardSnapshot>
   registerArrival(command: ArrivalCommand): Promise<ArrivalResult>
@@ -69,6 +75,7 @@ export interface WorkflowStore {
   recordOutcome(command: OutcomeCommand): Promise<OutcomeResult>
   updateVisitorAttributes(command: AttributesCommand): Promise<AttributesResult>
   recordDeparture(command: DepartureCommand): Promise<DepartureResult>
+  resetDemo(command: ResetCommand): Promise<ResetResult>
 }
 
 export type StoreErrorCode = DomainErrorCode | 'DATABASE_UNAVAILABLE' | 'INTERNAL_ERROR'
