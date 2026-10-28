@@ -3,9 +3,10 @@
  * commands, enforcing the exact Stage 1 bodies of Backend Requirements
  * section 6.
  */
-import type { ArrivalCommand } from '../store/workflowStore.js'
+import { OUTCOMES } from '../contracts/index.js'
+import type { AcceptanceCommand, ArrivalCommand, OutcomeCommand } from '../store/workflowStore.js'
 import { HttpError } from './responses.js'
-import { onlyKeys, requiredUuid, visitorAttributes, type JsonObject } from './validation.js'
+import { onlyKeys, requiredOneOf, requiredUuid, uuid, visitorAttributes, type JsonObject } from './validation.js'
 
 export function parseArrival(body: JsonObject): ArrivalCommand {
   onlyKeys(body, ['sessionId', 'eventId', 'source', 'detectedAt', 'attributes'])
@@ -24,5 +25,22 @@ export function parseArrival(body: JsonObject): ArrivalCommand {
     source: 'Manual',
     detectedAt: null,
     attributes: visitorAttributes(body.attributes),
+  }
+}
+
+export function parseAcceptance(body: JsonObject, params: Record<string, string>): AcceptanceCommand {
+  onlyKeys(body, ['sessionId'])
+  return {
+    sessionId: requiredUuid(body, 'sessionId'),
+    assignmentId: uuid(params.assignmentId, 'assignmentId'),
+  }
+}
+
+export function parseOutcome(body: JsonObject, params: Record<string, string>): OutcomeCommand {
+  onlyKeys(body, ['sessionId', 'outcome'])
+  return {
+    sessionId: requiredUuid(body, 'sessionId'),
+    assignmentId: uuid(params.assignmentId, 'assignmentId'),
+    outcome: requiredOneOf(body, 'outcome', OUTCOMES),
   }
 }

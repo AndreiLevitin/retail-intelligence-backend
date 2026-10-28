@@ -4,9 +4,22 @@
  * function names and arguments, and database failures to StoreError. It does
  * not duplicate business rules.
  */
-import { DOMAIN_ERROR_CODES, type ArrivalResult, type BoardSnapshot, type DomainErrorCode } from '../contracts/index.js'
+import {
+  DOMAIN_ERROR_CODES,
+  type AcceptanceResult,
+  type ArrivalResult,
+  type BoardSnapshot,
+  type DomainErrorCode,
+  type OutcomeResult,
+} from '../contracts/index.js'
 import { RpcError, type RpcClient } from './rpc.js'
-import { StoreError, type ArrivalCommand, type WorkflowStore } from './workflowStore.js'
+import {
+  StoreError,
+  type AcceptanceCommand,
+  type ArrivalCommand,
+  type OutcomeCommand,
+  type WorkflowStore,
+} from './workflowStore.js'
 
 const DEFAULT_DOMAIN_MESSAGES: Record<DomainErrorCode, string> = {
   VALIDATION_ERROR: 'The request is invalid.',
@@ -55,6 +68,21 @@ export class SupabaseGateway implements WorkflowStore {
       p_accessory_description: command.attributes.accessoryDescription,
       p_age_group: command.attributes.ageGroup,
       p_gender: command.attributes.gender,
+    })
+  }
+
+  acceptAssignment(command: AcceptanceCommand): Promise<AcceptanceResult> {
+    return this.invoke<AcceptanceResult>('upb_accept_assignment', {
+      p_session_id: command.sessionId,
+      p_assignment_id: command.assignmentId,
+    })
+  }
+
+  recordOutcome(command: OutcomeCommand): Promise<OutcomeResult> {
+    return this.invoke<OutcomeResult>('upb_record_outcome', {
+      p_session_id: command.sessionId,
+      p_assignment_id: command.assignmentId,
+      p_outcome: command.outcome,
     })
   }
 
