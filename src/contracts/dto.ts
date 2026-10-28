@@ -1,0 +1,264 @@
+/**
+ * Public HTTP contract of the Digital UP Board Stage 1 API.
+ *
+ * Dependency-free on purpose: the React frontend may import (or copy) this
+ * module without pulling in database or server code. Field names and machine
+ * values follow "Prototype Design.md" (Public DTOs and state values) and
+ * "Backend Requirements.md" section 6. All times are ISO 8601 UTC strings,
+ * all IDs are opaque UUID strings, optional values are explicit null.
+ */
+
+/* ------------------------------------------------------------ enum values */
+
+export const PARTICIPANT_STATES = ['Available', 'OffFloor', 'PendingAcceptance', 'OnUP'] as const
+export type ParticipantState = (typeof PARTICIPANT_STATES)[number]
+
+/** States an operator may request for an idle participant. */
+export const AVAILABILITY_STATES = ['Available', 'OffFloor'] as const
+export type AvailabilityState = (typeof AVAILABILITY_STATES)[number]
+
+export const ASSIGNMENT_PHASES = ['PendingAcceptance', 'Accepted', 'Completed'] as const
+export type AssignmentPhase = (typeof ASSIGNMENT_PHASES)[number]
+
+export const COMPLETION_REASONS = ['OutcomeRecorded', 'Departure'] as const
+export type CompletionReason = (typeof COMPLETION_REASONS)[number]
+
+export const OUTCOMES = ['Sale', 'NoSale'] as const
+export type Outcome = (typeof OUTCOMES)[number]
+
+export const VISIT_STATUSES = ['Waiting', 'Assigned', 'Accepted', 'Completed'] as const
+export type VisitStatus = (typeof VISIT_STATUSES)[number]
+
+export const VISIT_SOURCES = ['CV', 'Manual'] as const
+export type VisitSource = (typeof VISIT_SOURCES)[number]
+
+export const AGE_GROUPS = ['Under20', 'From20To39', 'From40To59', 'Age60Plus', 'Unknown'] as const
+export type AgeGroup = (typeof AGE_GROUPS)[number]
+
+export const GENDERS = ['Female', 'Male', 'Unknown'] as const
+export type Gender = (typeof GENDERS)[number]
+
+export const ATTRIBUTES_SOURCES = ['Manual', 'CV', 'Unknown'] as const
+export type AttributesSource = (typeof ATTRIBUTES_SOURCES)[number]
+
+export const ENRICHMENT_STATUSES = ['Pending', 'Complete', 'Failed', 'NotRequested'] as const
+export type EnrichmentStatus = (typeof ENRICHMENT_STATUSES)[number]
+
+export const ACTIVITY_KINDS = [
+  'ArrivalRecorded',
+  'AssignmentCreated',
+  'AssignmentAccepted',
+  'TurnCompleted',
+  'AvailabilityChanged',
+  'VisitorAttributesUpdated',
+  'VisitorDeparted',
+] as const
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
+
+/** Maximum length (Unicode code points) of each description field. */
+export const DESCRIPTION_MAX_LENGTH = 200
+
+/* ------------------------------------------------------------- read model */
+
+export interface SessionContext {
+  sessionId: string
+  startedAt: string
+}
+
+export interface AssociateView {
+  participantId: string
+  associateId: string
+  displayName: string
+  state: ParticipantState
+  /** 1-based rank among Available participants; null unless Available. */
+  queuePosition: number | null
+  /** Unfinished assignment of this participant; null when idle. */
+  currentAssignmentId: string | null
+  assignedTurns: number
+  acceptedTurns: number
+}
+
+export interface VisitorAttributes {
+  /** Trimmed; empty string means "not known". */
+  upperDescription: string
+  lowerDescription: string
+  /** Trimmed; null when absent (empty input is normalized to null). */
+  accessoryDescription: string | null
+  ageGroup: AgeGroup
+  gender: Gender
+}
+
+export interface VisitView {
+  visitId: string
+  /** Server registration (entry) time. */
+  arrivedAt: string
+  /** Separate CV observation time; always null in Stage 1. */
+  detectedAt: string | null
+  /** Registered exit time; presence is Inside while null, Left otherwise. */
+  departedAt: string | null
+  source: VisitSource
+  status: VisitStatus
+  attributes: VisitorAttributes
+  attributesSource: AttributesSource
+  enrichmentStatus: EnrichmentStatus
+  outcome: Outcome | null
+  outcomeRecordedAt: string | null
+  /** 1-based FIFO rank among Waiting visitors still inside; otherwise null. */
+  waitingPosition: number | null
+  assignmentId: string | null
+}
+
+export interface AssignmentView {
+  assignmentId: string
+  visitId: string
+  participantId: string
+  /** Derived: completedAt -> Completed, acceptedAt -> Accepted, else PendingAcceptance. */
+  phase: AssignmentPhase
+  assignedAt: string
+  acceptedAt: string | null
+  completedAt: string | null
+  completionReason: CompletionReason | null
+}
+
+export interface MetricsView {
+  visitors: number
+  assignedTurns: number
+  acceptedTurns: number
+  closedSales: number
+  /** Sale visits / all visits * 100 (0 when there are no visits); not rounded. */
+  conversionRate: number
+}
+
+export interface ActivityView {
+  activityId: string
+  occurredAt: string
+  kind: ActivityKind
+  description: string
+  visitId: string | null
+  participantId: string | null
+  assignmentId: string | null
+}
+
+/**
+ * GET /api/board. Associates are in stable initial roster order, visits and
+ * assignments in server registration order of their visits, activity newest
+ * first (at most 100 entries; metrics cover the whole run).
+ */
+export interface BoardSnapshot {
+  session: SessionContext
+  associates: AssociateView[]
+  visits: VisitView[]
+  assignments: AssignmentView[]
+  metrics: MetricsView
+  activity: ActivityView[]
+  serverTime: string
+}
+
+/* ----------------------------------------------------------- command bodies */
+
+/** POST /api/arrivals */
+export interface ArrivalRequest {
+  sessionId: string
+  /** Created once per intended visitor; reused unchanged on retry. */
+  eventId: string
+  source: 'Manual'
+  /** Must be null or omitted in Stage 1. */
+  detectedAt?: null
+  attributes: VisitorAttributes
+}
+
+/** POST /api/availability */
+export interface AvailabilityRequest {
+  sessionId: string
+  participantId: string
+  /** Created once per intended change; reused unchanged on retry. */
+  commandId: string
+  state: AvailabilityState
+}
+
+/** POST /api/assignments/{assignmentId}/accept */
+export interface AcceptanceRequest {
+  sessionId: string
+}
+
+/** POST /api/assignments/{assignmentId}/outcome */
+export interface OutcomeRequest {
+  sessionId: string
+  outcome: Outcome
+}
+
+/** PATCH /api/visits/{visitId}/attributes - full profile replacement. */
+export interface AttributesRequest {
+  sessionId: string
+  source: 'Manual'
+  attributes: VisitorAttributes
+  enrichmentStatus: 'NotRequested'
+}
+
+/** POST /api/visits/{visitId}/departure */
+export interface DepartureRequest {
+  sessionId: string
+  /** Required when the visit has no stored outcome; must match a stored one. */
+  outcome?: Outcome | null
+}
+
+/** POST /api/demo/reset */
+export interface ResetRequest {
+  sessionId: string
+}
+
+/* --------------------------------------------------------- command results */
+
+/** 201 when created, 200 with duplicate true for an identical replay. */
+export interface ArrivalResult {
+  sessionId: string
+  visitId: string
+  duplicate: boolean
+  /** Current Visit status (after automatic dispatch). */
+  status: VisitStatus
+}
+
+export interface AvailabilityResult {
+  sessionId: string
+  participantId: string
+  replayed: boolean
+}
+
+export interface AcceptanceResult {
+  sessionId: string
+  assignmentId: string
+  phase: AssignmentPhase
+  replayed: boolean
+}
+
+export interface OutcomeResult {
+  sessionId: string
+  visitId: string
+  assignmentId: string
+  outcome: Outcome
+  replayed: boolean
+}
+
+export interface AttributesResult {
+  sessionId: string
+  visitId: string
+  attributes: VisitorAttributes
+  attributesSource: AttributesSource
+  enrichmentStatus: EnrichmentStatus
+  /** Reserved for future CV writes blocked by a manual override; false in Stage 1. */
+  ignored: boolean
+}
+
+export interface DepartureResult {
+  sessionId: string
+  visitId: string
+  departedAt: string
+  outcome: Outcome
+  replayed: boolean
+}
+
+export interface ResetResult {
+  /** Identity of the new run. */
+  sessionId: string
+  startedAt: string
+}
