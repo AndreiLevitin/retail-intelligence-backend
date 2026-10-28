@@ -82,7 +82,12 @@ export interface AssociateView {
   associateId: string
   displayName: string
   state: ParticipantState
-  /** 1-based rank among Available participants; null unless Available. */
+  /**
+   * Dense 1-based rank among currently Available participants (1 = Next UP),
+   * recomputed on every board read; null unless Available. It is not a stored
+   * or monotonic token: ranks compact when someone goes Off Floor, and a
+   * returning participant takes the new last rank.
+   */
   queuePosition: number | null
   /** The run's single unresolved offer, when it is offered to this participant. */
   pendingAssignmentId: string | null
