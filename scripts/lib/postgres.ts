@@ -43,6 +43,8 @@ export async function startCluster(options: {
     user: ADMIN_USER,
     password: ADMIN_PASSWORD,
     persistent: options.persistent,
+    // Supabase databases are UTF8; the Windows initdb default would be WIN1252.
+    initdbFlags: ['--encoding=UTF8', '--no-locale'],
     // UTC server so ad-hoc psql output matches API times; the API itself
     // formats times explicitly and does not depend on this.
     postgresFlags: ['-c', 'timezone=UTC', '-c', 'max_connections=100', '-c', 'io_method=sync'],
@@ -104,7 +106,7 @@ export async function ensureRoles(port: number): Promise<void> {
  * revoke what they do not intend to expose.
  */
 export async function createDatabase(port: number, database: string): Promise<void> {
-  await withClient(adminUrl(port), (client) => client.query(`create database "${database}"`))
+  await withClient(adminUrl(port), (client) => client.query(`create database "${database}" encoding 'UTF8' template template0`))
   await withClient(adminUrl(port, database), (client) =>
     client.query(`
       grant usage on schema public to anon, authenticated, service_role;
