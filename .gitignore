@@ -9,6 +9,9 @@ node_modules/
 # Local disposable PostgreSQL data directory (scripts/local-db.ts)
 .local-db/
 
+# Supabase CLI link state (supabase link)
+supabase/.temp/
+
 # Tooling output
 .vercel/
 dist/
