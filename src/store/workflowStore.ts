@@ -9,7 +9,9 @@
 import type {
   AcceptanceResult,
   ArrivalResult,
+  AttributesResult,
   BoardSnapshot,
+  DepartureResult,
   DomainErrorCode,
   Outcome,
   OutcomeResult,
@@ -35,11 +37,28 @@ export interface OutcomeCommand {
   outcome: Outcome
 }
 
+export interface AttributesCommand {
+  sessionId: string
+  visitId: string
+  source: 'Manual'
+  attributes: VisitorAttributes
+  enrichmentStatus: 'NotRequested'
+}
+
+export interface DepartureCommand {
+  sessionId: string
+  visitId: string
+  /** null when the operator did not supply a result. */
+  outcome: Outcome | null
+}
+
 export interface WorkflowStore {
   getBoard(): Promise<BoardSnapshot>
   registerArrival(command: ArrivalCommand): Promise<ArrivalResult>
   acceptAssignment(command: AcceptanceCommand): Promise<AcceptanceResult>
   recordOutcome(command: OutcomeCommand): Promise<OutcomeResult>
+  updateVisitorAttributes(command: AttributesCommand): Promise<AttributesResult>
+  recordDeparture(command: DepartureCommand): Promise<DepartureResult>
 }
 
 export type StoreErrorCode = DomainErrorCode | 'DATABASE_UNAVAILABLE' | 'INTERNAL_ERROR'

@@ -8,7 +8,9 @@ import {
   DOMAIN_ERROR_CODES,
   type AcceptanceResult,
   type ArrivalResult,
+  type AttributesResult,
   type BoardSnapshot,
+  type DepartureResult,
   type DomainErrorCode,
   type OutcomeResult,
 } from '../contracts/index.js'
@@ -17,6 +19,8 @@ import {
   StoreError,
   type AcceptanceCommand,
   type ArrivalCommand,
+  type AttributesCommand,
+  type DepartureCommand,
   type OutcomeCommand,
   type WorkflowStore,
 } from './workflowStore.js'
@@ -82,6 +86,28 @@ export class SupabaseGateway implements WorkflowStore {
     return this.invoke<OutcomeResult>('upb_record_outcome', {
       p_session_id: command.sessionId,
       p_assignment_id: command.assignmentId,
+      p_outcome: command.outcome,
+    })
+  }
+
+  updateVisitorAttributes(command: AttributesCommand): Promise<AttributesResult> {
+    return this.invoke<AttributesResult>('upb_update_visitor_attributes', {
+      p_session_id: command.sessionId,
+      p_visit_id: command.visitId,
+      p_source: command.source,
+      p_upper_description: command.attributes.upperDescription,
+      p_lower_description: command.attributes.lowerDescription,
+      p_accessory_description: command.attributes.accessoryDescription,
+      p_age_group: command.attributes.ageGroup,
+      p_gender: command.attributes.gender,
+      p_enrichment_status: command.enrichmentStatus,
+    })
+  }
+
+  recordDeparture(command: DepartureCommand): Promise<DepartureResult> {
+    return this.invoke<DepartureResult>('upb_record_departure', {
+      p_session_id: command.sessionId,
+      p_visit_id: command.visitId,
       p_outcome: command.outcome,
     })
   }

@@ -2,7 +2,7 @@
  * The implemented Stage 1 endpoints. Each Vercel Function file in api/
  * exposes exactly one of these; the local dev server serves all of them.
  */
-import { parseAcceptance, parseArrival, parseOutcome } from './commands.js'
+import { parseAcceptance, parseArrival, parseAttributes, parseDeparture, parseOutcome } from './commands.js'
 import { jsonResponse } from './responses.js'
 import type { RouteDefinition } from './route.js'
 import { readJsonObject } from './validation.js'
@@ -45,4 +45,31 @@ export const outcomeRoute: RouteDefinition = {
   },
 }
 
-export const routes: readonly RouteDefinition[] = [boardRoute, arrivalsRoute, acceptRoute, outcomeRoute]
+export const attributesRoute: RouteDefinition = {
+  path: '/api/visits/:visitId/attributes',
+  methods: {
+    PATCH: async ({ request, params, store }) => {
+      const command = parseAttributes(await readJsonObject(request), params)
+      return jsonResponse(200, await store.updateVisitorAttributes(command))
+    },
+  },
+}
+
+export const departureRoute: RouteDefinition = {
+  path: '/api/visits/:visitId/departure',
+  methods: {
+    POST: async ({ request, params, store }) => {
+      const command = parseDeparture(await readJsonObject(request), params)
+      return jsonResponse(200, await store.recordDeparture(command))
+    },
+  },
+}
+
+export const routes: readonly RouteDefinition[] = [
+  boardRoute,
+  arrivalsRoute,
+  acceptRoute,
+  outcomeRoute,
+  attributesRoute,
+  departureRoute,
+]

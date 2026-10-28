@@ -104,7 +104,7 @@ export async function freshRun(db: TestDatabase): Promise<string> {
   return row.rows[0]!.id
 }
 
-export async function tableCounts(db: TestDatabase): Promise<Record<string, number>> {
+export async function tableCounts(db: TestDatabase): Promise<{ visits: number; assignments: number; activity: number; receipts: number }> {
   const result = await db.admin.query<{ visits: number; assignments: number; activity: number; receipts: number }>(`
     select (select count(*)::int from public.visits) as visits,
            (select count(*)::int from public.assignments) as assignments,

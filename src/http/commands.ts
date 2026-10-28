@@ -4,9 +4,15 @@
  * section 6.
  */
 import { OUTCOMES } from '../contracts/index.js'
-import type { AcceptanceCommand, ArrivalCommand, OutcomeCommand } from '../store/workflowStore.js'
+import type {
+  AcceptanceCommand,
+  ArrivalCommand,
+  AttributesCommand,
+  DepartureCommand,
+  OutcomeCommand,
+} from '../store/workflowStore.js'
 import { HttpError } from './responses.js'
-import { onlyKeys, requiredOneOf, requiredUuid, uuid, visitorAttributes, type JsonObject } from './validation.js'
+import { oneOf, onlyKeys, requiredOneOf, requiredUuid, uuid, visitorAttributes, type JsonObject } from './validation.js'
 
 export function parseArrival(body: JsonObject): ArrivalCommand {
   onlyKeys(body, ['sessionId', 'eventId', 'source', 'detectedAt', 'attributes'])
@@ -42,5 +48,33 @@ export function parseOutcome(body: JsonObject, params: Record<string, string>): 
     sessionId: requiredUuid(body, 'sessionId'),
     assignmentId: uuid(params.assignmentId, 'assignmentId'),
     outcome: requiredOneOf(body, 'outcome', OUTCOMES),
+  }
+}
+
+export function parseAttributes(body: JsonObject, params: Record<string, string>): AttributesCommand {
+  onlyKeys(body, ['sessionId', 'source', 'attributes', 'enrichmentStatus'])
+  const sessionId = requiredUuid(body, 'sessionId')
+  if (body.source !== 'Manual') {
+    throw new HttpError('VALIDATION_ERROR', 'source must be Manual; CV enrichment is not available in this stage.')
+  }
+  if (body.enrichmentStatus !== 'NotRequested') {
+    throw new HttpError('VALIDATION_ERROR', 'enrichmentStatus must be NotRequested for manual updates.')
+  }
+  if (!('attributes' in body)) throw new HttpError('VALIDATION_ERROR', 'attributes is required.')
+  return {
+    sessionId,
+    visitId: uuid(params.visitId, 'visitId'),
+    source: 'Manual',
+    attributes: visitorAttributes(body.attributes),
+    enrichmentStatus: 'NotRequested',
+  }
+}
+
+export function parseDeparture(body: JsonObject, params: Record<string, string>): DepartureCommand {
+  onlyKeys(body, ['sessionId', 'outcome'])
+  return {
+    sessionId: requiredUuid(body, 'sessionId'),
+    visitId: uuid(params.visitId, 'visitId'),
+    outcome: body.outcome === undefined || body.outcome === null ? null : oneOf(body.outcome, OUTCOMES, 'outcome'),
   }
 }
