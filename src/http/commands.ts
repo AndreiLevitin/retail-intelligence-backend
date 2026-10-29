@@ -21,8 +21,22 @@ export function parseArrival(body: JsonObject): ArrivalCommand {
   onlyKeys(body, ['sessionId', 'eventId', 'source', 'detectedAt', 'attributes'])
   const sessionId = requiredUuid(body, 'sessionId')
   const eventId = requiredUuid(body, 'eventId')
+  if (body.source === 'CV') {
+    onlyKeys(body, ['sessionId', 'eventId', 'source', 'detectedAt'])
+    const value = body.detectedAt
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(value)) {
+      throw new HttpError('VALIDATION_ERROR', 'CV detectedAt must be an ISO 8601 UTC timestamp.')
+    }
+    const time = new Date(value)
+    if (!Number.isFinite(time.getTime()) || time.toISOString().slice(0, 19) !== value.slice(0, 19)) {
+      throw new HttpError('VALIDATION_ERROR', 'CV detectedAt must be a valid UTC timestamp.')
+    }
+    return { sessionId, eventId, source: 'CV', detectedAt: time.toISOString(),
+      attributes: { upperDescription: '', lowerDescription: '', accessoryDescription: null,
+        ageGroup: 'Unknown', gender: 'Unknown' } }
+  }
   if (body.source !== 'Manual') {
-    throw new HttpError('VALIDATION_ERROR', 'source must be Manual; CV arrivals are not available in this stage.')
+    throw new HttpError('VALIDATION_ERROR', 'source must be Manual or CV.')
   }
   if (body.detectedAt !== undefined && body.detectedAt !== null) {
     throw new HttpError('VALIDATION_ERROR', 'detectedAt must be null or omitted for manual arrivals.')

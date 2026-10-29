@@ -2,6 +2,24 @@
 
 `CONTRACT_VERSION` in [`src/contracts/dto.ts`](../src/contracts/dto.ts).
 
+## Version6 - CV arrival without initial attributes (additive)
+
+- `POST /api/arrivals` also accepts `{sessionId,eventId,source:"CV",detectedAt}`.
+- CV detectedAt is required, valid ISO8601 UTC (Z or+00:00), normalized to
+  millisecond UTC. CV registration does not accept attributes yet; no analyzer
+  is being claimed. Attributes default to blank descriptions, null accessory
+  and Unknown age/gender; attributesSource=Unknown, enrichmentStatus=NotRequested.
+- Existing Manual bodies and board DTO shapes are unchanged. CV events use
+  the same eventId receipts, session lock, dispatcher, metrics and replay rules.
+- Timestamp changes under the same eventId conflict. Server registered time
+  remains separate from local detection time. Stale-session commands still stop.
+- Migration `20261028000400_cv_arrivals.sql` replaces only the arrival function,
+  retaining service_role-only execution. Apply it before starting the updated API.
+
+Frontend already understands the CV source and unknown values; no board schema
+change is required. The local Python runner sends an event as soon as it is
+observed, while the web board continues its existing2-second polling.
+
 ## Version 5 - no re-offer to the last rejecter (additive)
 
 User-confirmed correction of Reject UP; agreed with the frontend session.

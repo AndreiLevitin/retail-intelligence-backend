@@ -19,8 +19,9 @@
  *     rejected offers in assignments[] (at most one non-rejected).
  * 5 = a visit is never offered to the associate who rejected it last;
  *     VisitView.waitingReason explains why a Waiting visitor has no offer.
+ * 6 = CV arrival accepts detection time and omits initial attributes; board shape unchanged.
  */
-export const CONTRACT_VERSION = 5
+export const CONTRACT_VERSION = 6
 
 /* ------------------------------------------------------------ enum values */
 

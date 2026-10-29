@@ -1,9 +1,10 @@
 # Digital UP Board - Stage 1 backend
 
 Proof of concept for registering store visitors and distributing them between
-sales associates: manual stories US-01 through US-06. Computer vision, image
-analysis and automatic arrivals are a separate, later workstream and are not
-implemented (CV source / non-null `detectedAt` are rejected).
+sales associates: manual stories US-01 through US-06 and CV arrivals (contract6).
+CV uses the same transactional arrival/rotation path, without initial attributes.
+Image analysis remains deferred. See the root `Demo Runbook.md` for the local
+browser demo and `docs/CONTRACT_CHANGES.md` for the additive API change.
 
 Workspace layout (sibling folders under `RetailIntelligence/`):
 

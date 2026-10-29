@@ -25,8 +25,8 @@ import type {
 export interface ArrivalCommand {
   sessionId: string
   eventId: string
-  source: 'Manual'
-  detectedAt: null
+  source: 'Manual' | 'CV'
+  detectedAt: string | null
   attributes: VisitorAttributes
 }
 

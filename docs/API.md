@@ -147,7 +147,12 @@ Body: `{ "code": "<CODE>", "message": "<short public text>" }`. No SQL details.
   max 200 characters; empty upper/lower allowed; empty accessory -> `null`.
 - `ageGroup`: Under20 | From20To39 | From40To59 | Age60Plus | Unknown.
   `gender`: Female | Male | Unknown.
-- `source: "CV"` or non-null `detectedAt` -> 400 (CV is not part of Stage 1).
+- Manual still requires attributes and null/omitted detectedAt.
+- CV (contract6) accepts `{sessionId,eventId,source:"CV",detectedAt}` with no
+  attributes field. detectedAt must be a valid ISO8601 UTC timestamp (Z or+00:00).
+  Initial descriptions are blank, accessory null, age/gender Unknown,
+  attributesSource Unknown, enrichmentStatus NotRequested. No image inference
+  is performed by this endpoint. The same assignment and retry rules apply.
 - `status` is the visit status after automatic dispatch (`Assigned` or `Waiting`).
 
 ### POST /api/availability -> 200 AvailabilityResult

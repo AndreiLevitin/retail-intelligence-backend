@@ -74,6 +74,34 @@ describe('GET /api/board', () => {
 })
 
 describe('POST /api/arrivals', () => {
+  it('creates a CV visitor immediately without attributes, preserves detection time and deduplicates retries', async () => {
+    const body = { sessionId, eventId: randomUUID(), source: 'CV', detectedAt: '2026-10-28T18:00:00.123000+00:00' }
+    const first = await api.request('POST', '/api/arrivals', body)
+    expect(first.status).toBe(201)
+    expect(first.body.status).toBe('Assigned')
+    const replay = await api.request('POST', '/api/arrivals', body)
+    expect(replay.status).toBe(200)
+    expect(replay.body.duplicate).toBe(true)
+    const board = await api.board()
+    expect(board.visits).toHaveLength(1)
+    expect(board.visits[0]).toMatchObject({ source: 'CV', detectedAt: '2026-10-28T18:00:00.123Z',
+      attributesSource: 'Unknown', enrichmentStatus: 'NotRequested',
+      attributes: { upperDescription: '', lowerDescription: '', accessoryDescription: null,
+        ageGroup: 'Unknown', gender: 'Unknown' } })
+    expect(board.metrics.visitors).toBe(1)
+    expect(board.assignments).toHaveLength(1)
+    expect((await api.request('POST', '/api/arrivals', { ...body, detectedAt: '2026-10-28T18:00:01Z' })).status).toBe(409)
+  })
+
+  it('rejects missing/invalid CV times and CV attributes without side effects', async () => {
+    const base = { sessionId, eventId: randomUUID(), source: 'CV' }
+    for (const detectedAt of [null, undefined, 'yesterday', '2026-02-30T18:00:00Z', '2026-10-28T18:00:00+03:00']) {
+      expect((await api.request('POST', '/api/arrivals', { ...base, detectedAt })).status).toBe(400)
+    }
+    expect((await api.request('POST', '/api/arrivals', { ...base, detectedAt: '2026-10-28T18:00:00Z', attributes: attributes() })).status).toBe(400)
+    expect(await tableCounts(db)).toEqual({ visits: 0, assignments: 0, activity: 0, receipts: 0 })
+  })
+
   it('registers a Manual visit, offers it to the first eligible associate and moves them to the bottom', async () => {
     const response = await api.arrive(sessionId, { accessoryDescription: '  Backpack  ' })
     expect(response.status).toBe(201)
